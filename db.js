@@ -549,7 +549,7 @@ module.exports.CreateDB = function (parent, func) {
             // TODO: Starting in MongoDB 4.0.3, you should use countDocuments() instead of count() that is deprecated. We should detect MongoDB version and switch.
             // https://docs.mongodb.com/manual/reference/method/db.collection.countDocuments/
             //obj.isMaxType = function (max, type, domainid, func) { if (max == null) { func(false); } else { obj.file.countDocuments({ type: type, domain: domainid }, function (err, count) { func((err != null) || (count > max)); }); } }
-            obj.isMaxType = function (max, type, domainid, func) { if (max == null) { func(false); } else { obj.file.count({ type: type, domain: domainid }, function (err, count) { func((err != null) || (count > max)); }); } }
+            obj.isMaxType = function (max, type, domainid, func) { if (max == null) { func(false); } else { obj.file.count({ type: type, domain: domainid }, function (err, count) { func((err != null) || (count > max), count); }); } }
 
             // Database actions on the events collection
             obj.GetAllEvents = function (func) { obj.eventsfile.find({}).toArray(func); };
@@ -638,7 +638,7 @@ module.exports.CreateDB = function (parent, func) {
             obj.dispose = function () { for (var x in obj) { if (obj[x].close) { obj[x].close(); } delete obj[x]; } };
             obj.getLocalAmtNodes = function (func) { obj.file.find({ type: 'node', host: { $exists: true, $ne: null }, intelamt: { $exists: true } }, func); };
             obj.getAmtUuidNode = function (meshid, uuid, func) { obj.file.find({ type: 'node', meshid: meshid, 'intelamt.uuid': uuid }, func); };
-            obj.isMaxType = function (max, type, domainid, func) { if (max == null) { func(false); } else { obj.file.count({ type: type, domain: domainid }, function (err, count) { func((err != null) || (count > max)); }); } }
+            obj.isMaxType = function (max, type, domainid, func) { if (max == null) { func(false); } else { obj.file.count({ type: type, domain: domainid }, function (err, count) { func((err != null) || (count > max), count); }); } }
 
             // Database actions on the events collection
             obj.GetAllEvents = function (func) { obj.eventsfile.find({}, func); };
@@ -729,7 +729,7 @@ module.exports.CreateDB = function (parent, func) {
                 var mongoDumpPath = 'mongodump';
                 if (parent.config.settings.autobackup && parent.config.settings.autobackup.mongodumppath) { mongoDumpPath = parent.config.settings.autobackup.mongodumppath; }
                 const child_process = require('child_process');
-                const cmd = mongoDumpPath + ' --db \"' + dbname + '\" --archive=\"' + newBackupPath + '.archive\"';
+                const cmd = '\"' + mongoDumpPath + '\" --db \"' + dbname + '\" --archive=\"' + newBackupPath + '.archive\"';
                 var backupProcess = child_process.exec(cmd, { cwd: backupPath }, function (error, stdout, stderr) {
                     try {
                         backupProcess = null;
@@ -812,6 +812,13 @@ module.exports.CreateDB = function (parent, func) {
     // Called when a device group has changed
     function dbMeshChange(meshChange, added) {
         const mesh = meshChange.fullDocument;
+
+        // Update the mesh object in memory
+        const mmesh = parent.webserver.meshes[mesh._id];
+        for (var i in mesh) { mmesh[i] = mesh[i]; }
+        for (var i in mmesh) { if (mesh[i] == null) { delete mmesh[i]; } }
+
+        // Send the mesh update
         if (mesh.deleted) { mesh.action = 'deletemesh'; } else { mesh.action = (added ? 'createmesh' : 'meshchange'); }
         mesh.meshid = mesh._id;
         mesh.nolog = 1;
@@ -823,6 +830,13 @@ module.exports.CreateDB = function (parent, func) {
     // Called when a user account has changed
     function dbUserChange(userChange, added) {
         const user = userChange.fullDocument;
+
+        // Update the user object in memory
+        const muser = parent.webserver.users[user._id];
+        for (var i in user) { muser[i] = user[i]; }
+        for (var i in muser) { if (user[i] == null) { delete muser[i]; } }
+
+        // Send the user update
         parent.DispatchEvent(['*', 'server-users', user._id], obj, { etype: 'user', username: user.name, account: parent.webserver.CloneSafeUser(user), action: (added ? 'accountcreate' : 'accountchange'), domain: user.domain, nolog: 1 });
     }
 

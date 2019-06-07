@@ -60,7 +60,7 @@
             <div style="float:right">
                 <div id=notificationCount onclick="clickNotificationIcon()" class="unselectable" style="display: none;" title="Click to view current notifications">0</div>
             </div>
-            <p id="logoutControl">{{{logoutControl}}}</p>
+            <p id="logoutControl">{{{logoutControl}}}<span id=idleTimeoutNotify style="color:yellow"></span></p>
         </div>
         <div id="page_leftbar">
             <div style="height:16px"></div>
@@ -488,6 +488,9 @@
                                 <option value=3>Win+M</option>
                                 <option value=4>Shift+Win+M</option>
                                 <option value=6>Win+R</option>
+                                <option value=7>Alt-F4</option>
+                                <option value=8>Ctrl-W</option>
+                                <option value=9>Alt-Tab</option>
                             </select>
                             <input id="DeskWD" type=button value="Send" onkeypress="return false" onkeydown="return false" onclick="deskSendKeys()">
                             <input id="DeskClip" style="" type="button" value="Clipboard" onkeypress="return false" onkeydown="return false" onclick="showDeskClip()">
@@ -522,7 +525,7 @@
                                     <span id="connectbutton2span"><input type="button" id="connectbutton2" value="Connect" onclick=connectTerminal(event,1) onkeypress="return false" onkeydown="return false" disabled="disabled"></span>
                                     <span id="connectbutton2hspan">&nbsp;<input type="button" id="connectbutton2h" value="HW Connect" onclick=connectTerminal(event,2) onkeypress="return false" onkeydown="return false" disabled="disabled"></span>
                                     <span id="disconnectbutton2span">&nbsp;<input type="button" id="disconnectbutton2" value="Disconnect" onclick=connectTerminal(event,0) onkeypress="return false" onkeydown="return false"></span>
-                                    &nbsp;<span id="termstatus">Disconnected</span>
+                                    &nbsp;<span id="termstatus">Disconnected</span><span id="termtitle"></span>
                                 </div>
                             </td>
                         </tr>
@@ -543,6 +546,9 @@
                                         <input id="id_tcrbutton" type="button" onkeypress="return false" onkeydown="return false" class="bottombutton" value="CR+LF" title="Toggle what the return key will send" onclick="termToggleCr()">
                                         <input id="id_tfxkeysbutton" type="button" onkeypress="return false" onkeydown="return false" class="bottombutton" value="Intel (F10 = ESC+[OM)" title="Toggle F1 to F10 keys emulation type" onclick="termToggleFx()">
                                         <input id="id_ttypebutton" type="button" onkeypress="return false" onkeydown="return false" class="bottombutton" value="Extended Ascii" title="Toggle terminal emulation type" onclick="termToggleType()">
+                                    </span>
+                                    <span id="terminalSizeDropDown">
+                                        <select id="termSizeList" onkeypress="return false"><option value="1">80x25</option><option value="2">100x30</option><option value="3" selected>Auto</option></select>
                                     </span>
                                     <select id="specialkeylist" onkeypress="return false"></select>
                                     <input id="specialkeylistinput" type="button" onkeypress="return false" class="bottombutton" value="Send" title="Send the selected special key" onclick="sendSpecialKey()" />
@@ -718,7 +724,7 @@
                         <td style=width:200px>
                             <picture id=MainUserImage style=border-width:0px;height:200px;width:200px;float:right>
                                 <source type="image/webp" width=200 height=200 srcset="images/webp/user-256.webp">
-                                <img alt="" width=200 height=200 src=images/user-256.jpg />
+                                <img alt="" width=200 height=200 src=images/user-256.png />
                             </picture>
                             <div style="width:100%;text-align:center"><strong><span id=MainUserState></span></strong></div>
                         </td>
@@ -937,6 +943,7 @@
         var webPageStackMenu = false;
         var webPageFullScreen = true;
         var nightMode = (getstore('_nightMode', '0') == '1');
+        var sessionActivity = Date.now();
 
         // Console Message Display Timers
         var p11DeskConsoleMsgTimer = null;
@@ -1280,6 +1287,19 @@
         }
 
         function addLetterS(x) { return (x > 1) ? 's' : ''; }
+        function setSessionActivity() { sessionActivity = Date.now(); QH('idleTimeoutNotify', ''); }
+        function checkIdleSessionTimeout() {
+            var delta = (Date.now() - sessionActivity);
+            if (delta > serverinfo.timeout) { window.location.href = 'logout'; } else {
+                var ds = Math.round((serverinfo.timeout - delta) / 1000);
+                if (ds <= 60) {
+                    QH('idleTimeoutNotify', '<br />' + ds + ' second' + addLetterS(ds) + ' until disconnect');
+                } else {
+                    ds = Math.round(ds / 60);
+                    if (ds <= 5) { QH('idleTimeoutNotify', '<br />' + ds + ' minute' + addLetterS(ds) + ' until disconnect'); }
+                }
+            }
+        }
 
         function onMessage(server, message) {
             switch (message.action) {
@@ -1298,6 +1318,7 @@
                 }
                 case 'serverinfo': {
                     serverinfo = message.serverinfo;
+                    if (serverinfo.timeout) { setInterval(checkIdleSessionTimeout, 10000); checkIdleSessionTimeout(); }
                     break;
                 }
                 case 'userinfo': {
@@ -1416,10 +1437,17 @@
 
                             if (currentNode.lastconnect) { x += addHtmlValue2('Last agent connection', new Date(currentNode.lastconnect).toLocaleString()); }
                             if (currentNode.lastaddr) {
-                                if (isPrivateIP(currentNode.lastaddr)) {
-                                    x += addHtmlValue2('Last agent address', currentNode.lastaddr.split(':')[0]);
+                                var splitip = currentNode.lastaddr.split(':');
+                                if (splitip.length > 2) {
+                                    // IPv6
+                                    x += addHtmlValue2('Last agent address', currentNode.lastaddr);
                                 } else {
-                                    x += addHtmlValue2('Last agent address', '<a href="https://iplocation.com/?ip=' + currentNode.lastaddr.split(':')[0] + '" rel="noreferrer noopener" target="MeshIPLoopup">' + currentNode.lastaddr.split(':')[0] + '</a>');
+                                    // IPv4
+                                    if (isPrivateIP(currentNode.lastaddr)) {
+                                        x += addHtmlValue2('Last agent address', splitip[0]);
+                                    } else {
+                                        x += addHtmlValue2('Last agent address', '<a href="https://iplocation.com/?ip=' + splitip[0] + '" rel="noreferrer noopener" target="MeshIPLoopup">' + splitip[0] + '</a>');
+                                    }
                                 }
                             }
 
@@ -1959,6 +1987,29 @@
                     }
                     break;
                 }
+                case 'createInviteLink': { // Agent installation invitation link
+                    if (xxdialogTag != message.meshid) break;
+                    var servername = serverinfo.name;
+                    if ((servername.indexOf('.') == -1) || ((features & 2) != 0)) { servername = window.location.hostname; } // If the server name is not set or it's in LAN-only mode, use the URL hostname as server name.
+                    var domainUrlNoSlash = domainUrl.substring(0, domainUrl.length - 1);
+                    var url;
+                    if (serverinfo.https == true) {
+                        var portStr = (serverinfo.port == 443) ? '' : (":" + serverinfo.port);
+                        url = "https://" + servername + portStr + domainUrl + "agentinvite?c=" + message.cookie;
+                    } else {
+                        var portStr = (serverinfo.port == 80) ? '' : (":" + serverinfo.port);
+                        url = "http://" + servername + portStr + domainUrl + "agentinvite?c=" + message.cookie;
+                    }
+                    Q('agentInvitationLink').href = url;
+                    var t = message.expire + ' hour' + addLetterS(message.expire);
+                    if (message.expire == 24) { t = '1 day'; }
+                    if (message.expire == 168) { t = '1 week'; }
+                    if (message.expire == 5040) { t = '1 month'; }
+                    if (message.expire == 0) { t = 'Unlimited'; }
+                    QH('agentInvitationLink', 'Invitation Link (' + t + ')');
+                    QV('agentInvitationLinkDiv', true);
+                    break;
+                }
                 case 'stopped': { // Server is stopping.
                     // Disconnect
                     autoReconnect = false;
@@ -1993,6 +2044,7 @@
         }
 
         function ondockeypress(e) {
+            setSessionActivity();
             if (!xxdialogMode && xxcurrentView == 11 && desktop && Q("DeskControl").checked) {
                 // Check what keys we are allows to send
                 if (currentNode != null) {
@@ -2052,6 +2104,7 @@
         }
 
         function ondockeydown(e) {
+            setSessionActivity();
             if (!xxdialogMode && xxcurrentView == 11 && desktop && Q("DeskControl").checked) {
                 // Check what keys we are allows to send
                 if (currentNode != null) {
@@ -2086,6 +2139,7 @@
         }
 
         function ondockeyup(e) {
+            setSessionActivity();
             if (!xxdialogMode && xxcurrentView == 11 && desktop && Q("DeskControl").checked) {
                 // Check what keys we are allows to send
                 if (currentNode != null) {
@@ -2109,6 +2163,7 @@
 
         // Highlights the device being hovered
         function devMouseHover(element, over) {
+            setSessionActivity();
             var view = Q('viewselect').value;
             if (view == 1) {
                 var e = element.children[1].children[1];
@@ -2203,8 +2258,8 @@
                             if ((view == 1) && (current != null)) { if (c == 2) { r += '<td><div style=width:301px></div></td>'; } if (r != '') { r += '</tr></table>'; } }
                             if (view == 2) { r += '<div>'; }
                             r += '<div class=DevSt style=width:100%;padding-top:4px><span style=float:right>';
-                            r += getMeshActions(mesh2, meshrights);
-                            r += '</span><span id=MxMESH style=cursor:pointer onclick=gotoMesh("' + node.meshid + '")>' + EscapeHtml(meshes[node.meshid].name) + '</span>' + extra + '<span id=DevxHeader' + deviceHeaderId + ' class=devHeaderx></span></div>';
+                            r += '<span id=DevxHeader' + deviceHeaderId + ' class=devHeaderx></span>' + extra;
+                            r += '</span><span id=MxMESH style=cursor:pointer onclick=gotoMesh("' + node.meshid + '")>' + EscapeHtml(meshes[node.meshid].name) + '</span>' + getMeshActions(mesh2, meshrights) + '</div>';
                             if (view == 2) { r += '</div>'; }
                             current = node.meshid;
                             displayedMeshes[current] = 1;
@@ -2216,7 +2271,7 @@
                         if (pwr !== current) {
                             deviceHeaderSet();
                             if ((view == 1) && (current !== null)) { if (c == 2) { r += '<td><div style=width:301px></div></td>'; } if (r != '') { r += '</tr></table>'; } }
-                            r += '<div class=DevSt style=width:100%;padding-top:4px><span>' + PowerStateStr2(node.pwr) + '</span><span id=DevxHeader' + deviceHeaderId + ' class="devHeaderx"></span></div>';
+                            r += '<div class=DevSt style=width:100%;padding-top:4px><span id=DevxHeader' + deviceHeaderId + ' class=devHeaderx style=float:right></span><span>' + PowerStateStr2(node.pwr) + '</span></div>';
                             current = pwr;
                             c = 0;
                         }
@@ -2289,7 +2344,7 @@
                     for (var i in groups) { groupNames.push(i); }
                     groupNames.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
                     for (var j in groupNames) {
-                        var i = groupNames[j]; r += '<div class=DevSt style=width:100%;padding-top:4px><span>' + i + '</span><span class="devHeaderx">, ' + groupCount[i] + ' device' + ((groupCount[i] > 1)?'s':'') + '</span></div>' + groups[i];
+                        var i = groupNames[j]; r += '<div class=DevSt style=width:100%;padding-top:4px><span class=devHeaderx style=float:right>' + groupCount[i] + ' node' + ((groupCount[i] > 1) ? 's' : '') + '</span><span>' + i + '</span></div>' + groups[i];
                     }
                 }
 
@@ -2304,7 +2359,7 @@
 
                 if ((view == 1) && (c == 2)) r += '<td><div style=width:301px></div></td>'; // Adds device padding
 
-                // Display all empty meshes, we need to do this because users can add devices to these at any time.
+                // Display all empty device groups, we need to do this because users can add devices to these at any time.
                 if ((sort == 0) && (Q('SearchInput').value == '') && (view < 3)) {
                     for (var i in meshes) {
                         var mesh = meshes[i], meshlink = mesh.links[userinfo._id];
@@ -2312,9 +2367,9 @@
                             var meshrights = meshlink.rights;
                             if (displayedMeshes[mesh._id] == null) {
                                 if ((current != '') && (r != '')) { r += '</tr></table>'; }
-                                r += '<table style=width:100%;padding-top:4px cellpadding=0 cellspacing=0><tr><td colspan=3 class=DevSt><span style=float:right>';
+                                r += '<table style=width:100%;padding-top:4px cellpadding=0 cellspacing=0><tr><td colspan=3 class=DevSt><span id=MxMESH style=cursor:pointer onclick=gotoMesh("' + mesh._id + '")>' + EscapeHtml(mesh.name) + '</span><span>';
                                 r += getMeshActions(mesh, meshrights);
-                                r += '</span><span id=MxMESH style=cursor:pointer onclick=gotoMesh("' + mesh._id + '")>' + EscapeHtml(mesh.name) + '</span></td></tr><tr>';
+                                r += '</span></td></tr><tr>';
                                 if (mesh.mtype == 1) {
                                     r += '<td><div style=padding:10px><i>No Intel&reg; AMT devices in this mesh';
                                     if ((meshrights & 4) != 0) { r += ', <a style=cursor:pointer onclick=addDeviceToMesh(\"' + mesh._id + '\")>add one</a>'; }
@@ -2525,9 +2580,7 @@
             }
             if (mesh.mtype == 2) {
                 r += ' <a style=cursor:pointer;font-size:10px title="Add a new computer to this mesh by installing the mesh agent." onclick=addAgentToMesh(\"' + mesh._id + '\")>Add Agent</a>';
-                if (features & 64) {
-                    r += ' <a style=cursor:pointer;font-size:10px title="Invite someone to install the mesh agent on this mesh." onclick=inviteAgentToMesh(\"' + mesh._id + '\")>Invite</a>';
-                }
+                r += ' <a style=cursor:pointer;font-size:10px title="Invite someone to install the mesh agent on this mesh." onclick=inviteAgentToMesh(\"' + mesh._id + '\")>Invite</a>';
             }
             return r;
         }
@@ -2651,29 +2704,57 @@
 
         function inviteAgentToMesh(meshid) {
             if (xxdialogMode) return;
-            var mesh = meshes[meshid];
-            var x = "Invite someone to install the mesh agent. An email with be sent with the link to the mesh agent installation for " + EscapeHtml(mesh.name) + ".<br /><br />";
-            x += addHtmlValue('Name (optional)', '<input id=agentInviteName value="" style=width:230px maxlength=64 />');
-            x += addHtmlValue('Email', '<input id=agentInviteEmail style=width:230px placeholder="example@email.com" onkeyup=validateAgentInvite()></input>');
-            x += addHtmlValue('Operating System', '<select id=agentInviteNameOs style=width:236px><option value=0>Any supported</option><option value=1>Windows only</option><option value=3>Apple OSX only</option><option value=2>Linux only</option></select>');
-            x += addHtmlValue('Installation Type', '<select id=agentInviteType style=width:236px><option value=0>Background and interactive</option><option value=2>Background only</option><option value=1>Interactive only</option></select>');
-            x += addHtmlValue('Message<br />(optional)', '<textarea id=agentInviteMessage value="" style=width:230px;height:100px;resize:none maxlength=1024 /></textarea>');
+            var x = '', mesh = meshes[meshid];
+            if (features & 64) {
+                x += addHtmlValue('Invitation Type', '<select id=d2InviteType onchange=d2ChangedInviteType() style=width:236px><option value=0>Link invitation</option><option value=1>Email invitation</option></select>') + "<hr />";
+                x += "<div id=emailInviteDiv style=display:none>Invite someone to install the mesh agent. An email with be sent with the link to the mesh agent installation for the \"" + EscapeHtml(mesh.name) + "\" device group.<br /><br />";
+                x += addHtmlValue('Name (optional)', '<input id=agentInviteName value="" style=width:230px maxlength=64 />');
+                x += addHtmlValue('Email', '<input id=agentInviteEmail style=width:230px placeholder="example@email.com" onkeyup=validateAgentInvite()></input>');
+                x += addHtmlValue('Operating System', '<select id=agentInviteNameOs style=width:236px><option value=0>Any supported</option><option value=1>Windows only</option><option value=3>Apple MacOS only</option><option value=2>Linux only</option></select>');
+                x += addHtmlValue('Installation Type', '<select id=agentInviteType style=width:236px><option value=0>Background and interactive</option><option value=2>Background only</option><option value=1>Interactive only</option></select>');
+                x += addHtmlValue('Message<br />(optional)', '<textarea id=agentInviteMessage value="" style=width:230px;height:100px;resize:none maxlength=1024 /></textarea>');
+                x += '</div>';
+            }
+            x += '<div id=urlInviteDiv>Invite someone to install the mesh agent by sharing an invitation link. This link points the user to installation instructions for the \"' + EscapeHtml(mesh.name) + '\" device group. The link is public and no account for this server is needed.<br /><br />';
+            x += addHtmlValue('Link Expiration', '<select id=d2inviteExpire style=width:236px onchange=d2RequestInvitationLink()><option value=1>1 hour</option><option value=8>8 hours</option><option value=24>1 day</option><option value=168>1 week</option><option value=5040>1 month</option><option value=0>Unlimited</option></select>');
+            x += '<div id=agentInvitationLinkDiv style="text-align:center;font-size:large;margin:16px;display:none"><a id=agentInvitationLink target="_blank" href="" style=cursor:pointer></a> <img src=images/link4.png height=10 width=10 title="Copy link to clipboard" style=cursor:pointer onclick=d2CopyInviteToClip()></div></div>';
             setDialogMode(2, "Invite", 3, performAgentInvite, x, meshid);
+            validateAgentInvite();
+            d2RequestInvitationLink();
+        }
+
+        function d2RequestInvitationLink() {
+            meshserver.send({ action: 'createInviteLink', meshid: xxdialogTag, expire: parseInt(Q('d2inviteExpire').value), flags: 0 });
+        }
+
+        function d2ChangedInviteType() {
+            QV('urlInviteDiv', Q('d2InviteType').value == 0);
+            if (features & 64) { QV('emailInviteDiv', Q('d2InviteType').value == 1); }
             validateAgentInvite();
         }
 
+        function d2CopyInviteToClip() { copyTextToClip(Q('agentInvitationLink').href); }
+        
         function validateAgentInvite() {
-            QE('idx_dlgOkButton', checkEmail(Q('agentInviteEmail').value));
+            if ((features & 64) && (Q('d2InviteType').value == 1)) {
+                QE('idx_dlgOkButton', checkEmail(Q('agentInviteEmail').value));
+                QV('idx_dlgCancelButton', true);
+            } else {
+                QE('idx_dlgOkButton', true);
+                QV('idx_dlgCancelButton', false);
+            }
         }
 
         function performAgentInvite(button, meshid) {
-            meshserver.send({ action: 'inviteAgent', meshid: meshid, email: Q('agentInviteEmail').value, name: Q('agentInviteName').value, os: Q('agentInviteNameOs').value, flags: Q('agentInviteType').value, msg: Q('agentInviteMessage').value });
+            if ((features & 64) && (Q('d2InviteType').value == 1)) {
+                meshserver.send({ action: 'inviteAgent', meshid: meshid, email: Q('agentInviteEmail').value, name: Q('agentInviteName').value, os: Q('agentInviteNameOs').value, flags: Q('agentInviteType').value, msg: Q('agentInviteMessage').value });
+            }
         }
 
         function addAgentToMesh(meshid) {
             if (xxdialogMode) return;
             var mesh = meshes[meshid], x = '', installType = 0;
-            x += addHtmlValue('Operating System', '<select id=aginsSelect onchange=addAgentToMeshClick() style=width:236px><option value=0>Windows</option><option value=1>Linux</option><option value=2>Apple OSX</option><option value=3>Windows (UnInstall)</option><option value=4>Linux (UnInstall)</option></select>');
+            x += addHtmlValue('Operating System', '<select id=aginsSelect onchange=addAgentToMeshClick() style=width:236px><option value=0>Windows</option><option value=1>Linux</option><option value=2>Apple MacOS</option><option value=3>Windows (UnInstall)</option><option value=4>Linux (UnInstall)</option></select>');
             x += '<div id=aginsTypeDiv>';
             x += addHtmlValue('Installation Type', '<select id=aginsType onchange=addAgentToMeshClick() style=width:236px><option value=0>Background & interactive</option><option value=2>Background only</option><option value=1>Interactive only</option></select>');
             x += '</div><hr>';
@@ -2684,11 +2765,11 @@
 
             // Windows agent install
             //x += "<div id=agins_windows>To add a new computer to device group \"" + EscapeHtml(mesh.name) + "\", download the mesh agent and configuration file and install the agent on the computer to manage.<br /><br />";
-            x += "<div id=agins_windows>To add a new computer to device group \"" + EscapeHtml(mesh.name) + "\", download the mesh agent and install it the computer to manage. This agent has server and mesh information embedded within it.<br /><br />";
+            x += "<div id=agins_windows>To add a new computer to device group \"" + EscapeHtml(mesh.name) + "\", download the mesh agent and install it the computer to manage. This agent has server and device group information embedded within it.<br /><br />";
             //x += addHtmlValue('Mesh Agent', '<a id=aginsw32lnk href="meshagents?id=3&meshid=' + meshid.split('/')[2] + '&installflags=0" rel="noreferrer noopener" target="_blank" title="32bit version of the MeshAgent">Windows (.exe)</a>');
             //x += addHtmlValue('Mesh Agent', '<a id=aginsw64lnk href="meshagents?id=4&meshid=' + meshid.split('/')[2] + '&installflags=0" rel="noreferrer noopener" target="_blank" title="64bit version of the MeshAgent">Windows x64 (.exe)</a>');
-            x += addHtmlValue('Mesh Agent', '<a id=aginsw32lnk style=cursor:pointer onclick=fileDownload("meshagents?id=3&meshid=' + meshid.split('/')[2] + '&installflags=","MeshAgent-' + meshfilename + '.exe",1) title="32bit version of the MeshAgent">Windows (.exe)</a>');
-            x += addHtmlValue('Mesh Agent', '<a id=aginsw64lnk style=cursor:pointer onclick=fileDownload("meshagents?id=4&meshid=' + meshid.split('/')[2] + '&installflags=","MeshAgent-' + meshfilename + '.exe",1) title="64bit version of the MeshAgent">Windows x64 (.exe)</a>');
+            x += addHtmlValue('Mesh Agent', '<a id=aginsw32lnk style=cursor:pointer onclick=fileDownload("meshagents?id=3&meshid=' + meshid.split('/')[2] + '&installflags=","MeshAgent-' + meshfilename + '.exe",1) title="32bit version of the MeshAgent">Windows (.exe)</a> <img src=images/link4.png height=10 width=10 title="Copy 32bit agent URL to clipboard" style=cursor:pointer onclick=copyAgentUrl("meshagents?id=3&meshid=' + meshid.split('/')[2] + '&installflags=",1)>');
+            x += addHtmlValue('Mesh Agent', '<a id=aginsw64lnk style=cursor:pointer onclick=fileDownload("meshagents?id=4&meshid=' + meshid.split('/')[2] + '&installflags=","MeshAgent-' + meshfilename + '.exe",1) title="64bit version of the MeshAgent">Windows x64 (.exe)</a> <img src=images/link4.png height=10 width=10 title="Copy 64bit agent URL to clipboard" style=cursor:pointer onclick=copyAgentUrl("meshagents?id=4&meshid=' + meshid.split('/')[2] + '&installflags=",1)>');
             if (debugmode > 0) { x += addHtmlValue('Settings File', '<a id=aginswmshlnk href="meshsettings?id=' + meshid.split('/')[2] + '&installflags=0" rel="noreferrer noopener" target="_blank">' + EscapeHtml(mesh.name) + ' settings (.msh)</a>'); }
             x += "</div>";
 
@@ -2697,17 +2778,17 @@
             x += '<textarea id=agins_linux_area rows=2 cols=20 readonly=readonly style=width:100%;resize:none;height:120px;overflow:scroll;font-size:12px readonly></textarea>';
             x += "</div>";
 
-            // OSX agent install
-            x += "<div id=agins_osx style=display:none>To add a new computer to device group \"" + EscapeHtml(mesh.name) + "\", download the mesh agent and install it the computer to manage. This agent installer has server and mesh information embedded within it.<br /><br />";
-            x += addHtmlValue('Mesh Agent', '<a href="meshosxagent?id=16&meshid=' + meshid.split('/')[2] + '" rel="noreferrer noopener" target="_blank" title="64bit version of OSX Mesh Agent">OSX Agent (64bit)</a>');
+            // MacOS agent install
+            x += "<div id=agins_osx style=display:none>To add a new computer to device group \"" + EscapeHtml(mesh.name) + "\", download the mesh agent and install it the computer to manage. This agent installer has server and device group information embedded within it.<br /><br />";
+            x += addHtmlValue('Mesh Agent', '<a href="meshosxagent?id=16&meshid=' + meshid.split('/')[2] + '" rel="noreferrer noopener" target="_blank" title="64bit version of MacOS Mesh Agent">MacOS Agent (64bit)</a> <img src=images/link4.png height=10 width=10 title="Copy MacOS agent URL to clipboard" style=cursor:pointer onclick=copyAgentUrl("meshosxagent?id=16&meshid=' + meshid.split('/')[2] + '",0)>');
             x += "</div>";
 
             // Windows agent uninstall
             x += "<div id=agins_windows_un style=display:none>To remove a mesh agent, download the file below, run it and click \"uninstall\".<br /><br />";
             //x += addHtmlValue('Mesh Agent', '<a href="meshagents?id=3" rel="noreferrer noopener" target="_blank" title="32bit version of the MeshAgent">Windows (.exe)</a>');
             //x += addHtmlValue('Mesh Agent', '<a href="meshagents?id=4" rel="noreferrer noopener" target="_blank" title="64bit version of the MeshAgent">Windows x64 (.exe)</a>');
-            x += addHtmlValue('Mesh Agent', '<a style=cursor:pointer onclick=fileDownload("meshagents?id=3","MeshAgent.exe") title="32bit version of the MeshAgent">Windows (.exe)</a>');
-            x += addHtmlValue('Mesh Agent', '<a style=cursor:pointer onclick=fileDownload("meshagents?id=4","MeshAgent.exe") title="64bit version of the MeshAgent">Windows x64 (.exe)</a>');
+            x += addHtmlValue('Mesh Agent', '<a style=cursor:pointer onclick=fileDownload("meshagents?id=3","MeshAgent.exe") title="32bit version of the MeshAgent">Windows (.exe)</a> <img src=images/link4.png height=10 width=10 title="Copy 32bit agent URL to clipboard" style=cursor:pointer onclick=copyAgentUrl("meshagents?id=3",0)>');
+            x += addHtmlValue('Mesh Agent', '<a style=cursor:pointer onclick=fileDownload("meshagents?id=4","MeshAgent.exe") title="64bit version of the MeshAgent">Windows x64 (.exe)</a> <img src=images/link4.png height=10 width=10 title="Copy 64bit agent URL to clipboard" style=cursor:pointer onclick=copyAgentUrl("meshagents?id=4",0)>');
             x += "</div>";
 
             // Linux agent uninstall
@@ -2752,6 +2833,16 @@
             }
             Q('aginsSelect').focus();
             addAgentToMeshClick();
+        }
+
+        function copyAgentUrl(url,addflag) {
+            var servername = serverinfo.name;
+            if ((servername.indexOf('.') == -1) || ((features & 2) != 0)) { servername = window.location.hostname; } // If the server name is not set or it's in LAN-only mode, use the URL hostname as server name.
+            var domainUrlNoSlash = domainUrl.substring(0, domainUrl.length - 1);
+            var portStr = (serverinfo.port == 443) ? '' : (":" + serverinfo.port);
+            var c = "https://" + servername + portStr + domainUrl + url;
+            if (addflag == 1) c += Q('aginsType').value;
+            copyTextToClip(c);
         }
 
         function fileDownload(path, name, appendFlag) {
@@ -2805,7 +2896,7 @@
 
         function deviceHeaderSet() {
             if (deviceHeaderId == 0) { deviceHeaderId = 1; return; }
-            deviceHeaders["DevxHeader" + deviceHeaderId] = ', ' + deviceHeaderTotal + ((deviceHeaderTotal == 1) ? ' node' : ' nodes');
+            deviceHeaders["DevxHeader" + deviceHeaderId] = deviceHeaderTotal + ((deviceHeaderTotal == 1) ? ' node' : ' nodes');
             //var title = '';
             //for (x in deviceHeaderCount) { if (title.length > 0) title += ', '; title += deviceHeaderCount[x] + ' ' + PowerStateStr2(x); }
             //deviceHeadersTitles["DevxHeader" + deviceHeaderId] = title;
@@ -3728,7 +3819,7 @@
                 }
 
                 // Attribute: Mesh Agent
-                var agentsStr = ['Unknown', 'Windows 32bit console', 'Windows 64bit console', 'Windows 32bit service', 'Windows 64bit service', 'Linux 32bit', 'Linux 64bit', 'MIPS', 'XENx86', 'Android ARM', 'Linux ARM', 'OSX 32bit', 'Android x86', 'PogoPlug ARM', 'Android APK', 'Linux Poky x86-32bit', 'OSX 64bit', 'ChromeOS', 'Linux Poky x86-64bit', 'Linux NoKVM x86-32bit', 'Linux NoKVM x86-64bit', 'Windows MinCore console', 'Windows MinCore service', 'NodeJS', 'ARM-Linaro', 'ARMv6l / ARMv7l', 'ARMv8 64bit'];
+                var agentsStr = ['Unknown', 'Windows 32bit console', 'Windows 64bit console', 'Windows 32bit service', 'Windows 64bit service', 'Linux 32bit', 'Linux 64bit', 'MIPS', 'XENx86', 'Android ARM', 'Linux ARM', 'MacOS 32bit', 'Android x86', 'PogoPlug ARM', 'Android APK', 'Linux Poky x86-32bit', 'MacOS 64bit', 'ChromeOS', 'Linux Poky x86-64bit', 'Linux NoKVM x86-32bit', 'Linux NoKVM x86-64bit', 'Windows MinCore console', 'Windows MinCore service', 'NodeJS', 'ARM-Linaro', 'ARMv6l / ARMv7l', 'ARMv8 64bit'];
                 if ((node.agent != null) && (node.agent.id != null) && (node.agent.ver != null)) {
                     var str = '';
                     if (node.agent.id <= agentsStr.length) { str = agentsStr[node.agent.id]; } else { str = agentsStr[0]; }
@@ -4058,7 +4149,7 @@
 
         function addDeviceAttribute(name, value) { return '<tr><td class=style7>' + name + '</td><td class=style9>' + value + '</td></tr>'; }
 
-        function editDeviceAmtSettings(nodeid, func) {
+        function editDeviceAmtSettings(nodeid, func, arg) {
             if (xxdialogMode) return;
             var x = '', node = getNodeFromId(nodeid), buttons = 3, meshrights = getNodeRights(nodeid);
             if ((meshrights & 4) == 0) return;
@@ -4066,7 +4157,7 @@
             x += addHtmlValue('Password', '<input id=dp10password type=password style=width:230px autocomplete=nope maxlength=32 onchange=validateDeviceAmtSettings() onkeyup=validateDeviceAmtSettings() />');
             x += addHtmlValue('Security', '<select id=dp10tls style=width:236px><option value=0>No TLS security</option><option value=1>TLS security required</option></select>');
             if ((node.intelamt.user != null) && (node.intelamt.user != '')) { buttons = 7; }
-            setDialogMode(2, "Edit Intel&reg; AMT credentials", buttons, editDeviceAmtSettingsEx, x, { node: node, func: func });
+            setDialogMode(2, "Edit Intel&reg; AMT credentials", buttons, editDeviceAmtSettingsEx, x, { node: node, func: func, arg: arg });
             if ((node.intelamt.user != null) && (node.intelamt.user != '')) { Q('dp10username').value = node.intelamt.user; } else { Q('dp10username').value = 'admin'; }
             Q('dp10tls').value = node.intelamt.tls;
             validateDeviceAmtSettings();
@@ -4089,7 +4180,7 @@
                 meshserver.send({ action: 'changedevice', nodeid: tag.node._id, intelamt: { user: amtuser, pass: amtpass, tls: Q('dp10tls').value } });
                 tag.node.intelamt.user = amtuser;
                 tag.node.intelamt.tls = Q('dp10tls').value;
-                if (tag.func) { setTimeout(tag.func, 300); }
+                if (tag.func) { setTimeout(function () { tag.func(null, tag.arg); }, 300); }
             }
         }
 
@@ -4388,7 +4479,7 @@
                 desktopNode = currentNode;
                 if (contype == 2) {
                     // Setup the Intel AMT remote desktop
-                    if ((desktopNode.intelamt.user == null) || (desktopNode.intelamt.user == '')) { editDeviceAmtSettings(desktopNode._id, connectDesktop); return; }
+                    if ((desktopNode.intelamt.user == null) || (desktopNode.intelamt.user == '')) { editDeviceAmtSettings(desktopNode._id, connectDesktop, 2); return; }
                     desktop = CreateAmtRedirect(CreateAmtRemoteDesktop('Desk'), authCookie);
                     desktop.debugmode = debugmode;
                     desktop.onStateChanged = onDesktopStateChange;
@@ -4759,9 +4850,27 @@
                 }
             } else if (ks == 6) { // WIN+R
                 if (desktop.contype == 2) {
-                    desktop.m.sendkey([[0xffe7, 1], [0x72, 1], [0x72, 0], [0xffe7, 0]]); // Intel AMT: Meta-left down, 'l' press, 'l' release, Meta-left release
+                    desktop.m.sendkey([[0xffe7,1],[0x72,1],[0x72,0],[0xffe7,0]]); // Intel AMT: Meta-left down, 'r' press, 'r' release, Meta-left release
                 } else {
                     desktop.m.SendKeyMsgKC([[desktop.m.KeyAction.EXDOWN, 0x5B], [desktop.m.KeyAction.DOWN, 82], [desktop.m.KeyAction.UP, 82], [desktop.m.KeyAction.EXUP, 0x5B]]); // MeshAgent: L-Winkey press, 'R' press, 'R' release, L-Winkey release
+                }
+            } else if (ks == 7) { // ALT-F4
+                if (desktop.contype == 2) {
+                    desktop.m.sendkey([[0xffe9,1],[0xffc1,1],[0xffc1,0],[0xffe9,0]]); // Intel AMT: Alt down, 'F4' press, 'F4' release, Alt release
+                } else {
+                    desktop.m.SendKeyMsgKC([[desktop.m.KeyAction.EXDOWN, 18], [desktop.m.KeyAction.DOWN, 115], [desktop.m.KeyAction.UP, 115], [desktop.m.KeyAction.EXUP, 18]]); // MeshAgent: Alt press, 'F4' press, 'F4' release, Alt release
+                }
+            } else if (ks == 8) { // CTRL-W
+                if (desktop.contype == 2) {
+                    desktop.m.sendkey([[0xffe3,1],[0x77,1],[0x77,0],[0xffe3,0]]); // Intel AMT: Ctrl down, 'w' press, 'w' release, Ctrl release
+                } else {
+                    desktop.m.SendKeyMsgKC([[desktop.m.KeyAction.EXDOWN, 17], [desktop.m.KeyAction.DOWN, 87], [desktop.m.KeyAction.UP, 87], [desktop.m.KeyAction.EXUP, 17]]); // MeshAgent: Ctrl press, 'W' press, 'W' release, Ctrl release
+                }
+            } else if (ks == 9) { // ALT-TAB
+                if (desktop.contype == 2) {
+                    desktop.m.sendkey([[0xffe9, 1], [0xff09, 1], [0xff09, 0], [0xffe9, 0]]); // Intel AMT: Alt down, 'TAB' press, 'TAB' release, Alt release
+                } else {
+                    desktop.m.SendKeyMsgKC([[desktop.m.KeyAction.EXDOWN, 18], [desktop.m.KeyAction.DOWN, 9], [desktop.m.KeyAction.UP, 9], [desktop.m.KeyAction.EXUP, 18]]); // MeshAgent: Alt press, 'TAB' press, 'TAB' release, Alt release
                 }
             }
         }
@@ -4873,10 +4982,10 @@
             dblClickDetectArgs.y = e.clientY;
         }
 
-        function dmousedown(e) { e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousedown(e); desktop.m.sendKeepAlive(); } else { desktop.m.mousedown(e); } } dblClickDetect(e); }
-        function dmouseup(e) { e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mouseup(e); desktop.m.sendKeepAlive(); } else { desktop.m.mouseup(e); } }
-        function dmousemove(e) { e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousemove(e); desktop.m.sendKeepAlive(); } else { desktop.m.mousemove(e); } } }
-        function dmousewheel(e) { e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousewheel(e); desktop.m.sendKeepAlive(); } else { if (desktop.m.mousewheel) { desktop.m.mousewheel(e); } } haltEvent(e); return true; } return false; }
+        function dmousedown(e) { setSessionActivity(); e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousedown(e); desktop.m.sendKeepAlive(); } else { desktop.m.mousedown(e); } } dblClickDetect(e); }
+        function dmouseup(e) { setSessionActivity(); e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mouseup(e); desktop.m.sendKeepAlive(); } else { desktop.m.mouseup(e); } }
+        function dmousemove(e) { setSessionActivity(); e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousemove(e); desktop.m.sendKeepAlive(); } else { desktop.m.mousemove(e); } } }
+        function dmousewheel(e) { setSessionActivity(); e.addx = Q('DeskParent').scrollLeft; e.addy = Q('DeskParent').scrollTop; if (!xxdialogMode && desktop != null && Q('DeskControl').checked) { if ((webRtcDesktop != null) && (webRtcDesktop.softdesktop != null)) { webRtcDesktop.softdesktop.m.mousewheel(e); desktop.m.sendKeepAlive(); } else { if (desktop.m.mousewheel) { desktop.m.mousewheel(e); } } haltEvent(e); return true; } return false; }
         function drotate(x) { if (!xxdialogMode && desktop != null) { desktop.m.setRotation(desktop.m.rotation + x); deskAdjust(); deskAdjust(); } }
         function stopProcess(id, name) { setDialogMode(2, "Process Control", 3, stopProcessEx, 'Stop process #' + id + ' "' + name + '"?', id); }
         function stopProcessEx(buttons, tag) { meshserver.send({ action: 'msg', type:'pskill', nodeid: currentNode._id, value: tag }); setTimeout(refreshDeskTools, 300); }
@@ -4937,16 +5046,17 @@
             switch (state) {
                 case 0:
                     // Disconnected, clear the terminal
+                    QE('termSizeList', true);
+                    QH('termtitle', '');
                     xterminal.m.TermResetScreen();
                     xterminal.m.TermDraw();
-                    if (terminal != null) {
-                        terminal.Stop();
-                        terminal = null;
-                    }
+                    if (terminal != null) { terminal.Stop(); terminal = null; }
                     break;
                 case 3:
+                    QE('termSizeList', false);
                     break;
                 default:
+                    QE('termSizeList', false);
                     //console.log('Unhandled onTerminalStateChange state', state);
                     break;
             }
@@ -4961,23 +5071,38 @@
             if (!terminal) {
                 if (contype == 2) {
                     // Setup the Intel AMT terminal
-                    if ((terminalNode.intelamt.user == null) || (terminalNode.intelamt.user == '')) { editDeviceAmtSettings(terminalNode._id, connectTerminal); return; }
-                    terminal = CreateAmtRedirect(CreateAmtRemoteTerminal('Term'), authCookie);
+                    if ((terminalNode.intelamt.user == null) || (terminalNode.intelamt.user == '')) { editDeviceAmtSettings(terminalNode._id, connectTerminal, 2); return; }
+                    var termoptions = {};
+                    if (Q('termSizeList').value == 2) { termoptions.width = 100; termoptions.height = 30; }
+                    terminal = CreateAmtRedirect(CreateAmtRemoteTerminal('Term', termoptions), authCookie);
                     terminal.debugmode = debugmode;
                     terminal.m.debugmode = debugmode;
+                    terminal.m.onTitleChange = function (sender, title) { QH('termtitle', ' - ' + EscapeHtml(title)); }
                     terminal.onStateChanged = onTerminalStateChange;
                     terminal.Start(terminalNode._id, 16994, '*', '*', 0);
                     terminal.contype = 2;
                     Q('id_ttypebutton').value = terminalEmulations[terminal.m.terminalEmulation];
                 } else {
                     // Setup a mesh agent terminal
-                    terminal = CreateAgentRedirect(meshserver, CreateAmtRemoteTerminal('Term'), serverPublicNamePort, authCookie, domainUrl);
+                    var termoptions = {};
+                    if ([1, 2, 3, 4, 21, 22].indexOf(currentNode.agent.id) == -1) {
+                        if (Q('termSizeList').value == 2) { termoptions.width = 100; termoptions.height = 30; termoptions.xterm = true; }
+                        if (Q('termSizeList').value == 3) {
+                            // TODO: Try to improve terminal auto-size.
+                            termoptions.width = Math.floor((Q('column_l').clientWidth - 60) / 10);
+                            termoptions.height = Math.floor((Q('column_l').clientHeight - 120) / 20);
+                            termoptions.xterm = true;
+                        }
+                    }
+                    terminal = CreateAgentRedirect(meshserver, CreateAmtRemoteTerminal('Term', termoptions), serverPublicNamePort, authCookie, domainUrl);
                     terminal.debugmode = debugmode;
                     terminal.m.debugmode = debugmode;
+                    terminal.m.onTitleChange = function (sender, title) { QH('termtitle', ' - ' + EscapeHtml(title)); }
                     terminal.m.lineFeed = ([1, 2, 3, 4, 21, 22].indexOf(currentNode.agent.id) >= 0) ? '\r\n' : '\r'; // On windows, send \r\n, on Linux only \r
                     terminal.attemptWebRTC = attemptWebRTC;
                     terminal.onStateChanged = onTerminalStateChange;
                     terminal.onConsoleMessageChange = function () {
+                        console.log('terminal.consoleMessage', terminal.consoleMessage);
                         p12clearConsoleMsg();
                         if (terminal.consoleMessage) {
                             QH('p12TermConsoleMsg', EscapeHtml(terminal.consoleMessage).split('\n').join('<br />'));
@@ -5442,7 +5567,6 @@
                     p13uploadNextFile();
                     break;
                 default:
-                    console.log('Unknown onFileUploadStateChange state', state);
                     break;
             }
         }
@@ -6146,9 +6270,7 @@
                 }
                 if (currentMesh.mtype == 2) {
                     x += '<a onclick=addAgentToMesh(\"' + currentMesh._id + '\") style=cursor:pointer;margin-right:10px title="Add a new computer to this mesh by installing the mesh agent."><img src=images/icon-addnew.png border=0 height=12 width=12> Install</a>';
-                    if (features & 64) {
-                        x += '<a onclick=inviteAgentToMesh(\"' + currentMesh._id + '\") style=cursor:pointer;margin-right:10px title="Invite someone to install the mesh agent on this mesh."><img src=images/icon-addnew.png border=0 height=12 width=12> Invite</a>';
-                    }
+                    x += '<a onclick=inviteAgentToMesh(\"' + currentMesh._id + '\") style=cursor:pointer;margin-right:10px title="Invite someone to install the mesh agent on this mesh."><img src=images/icon-addnew.png border=0 height=12 width=12> Invite</a>';
                 }
             }
 
@@ -6904,7 +7026,7 @@
             if (user.links) { for (var i in user.links) { groups++; } }
 
             var username = EscapeHtml(user.name), emailVerified = '';
-            if (serverinfo.emailcheck == true) { emailVerified = ((user.emailVerified != true) ? ' <b style=color:red title="Email is not verified">&#x1F5F4</b>' : ' <b style=color:green title="Email is verified">&#x1F5F8</b>'); }
+            if (serverinfo.emailcheck == true) { emailVerified = ((user.emailVerified != true) ? ' <b style=color:red title="Email is not verified">&#x2717;</b>' : ' <b style=color:green title="Email is verified">&#x2713</b>'); }
             if (user.email != null) { username += ', <a onclick=doemail(event,\"' + user.email + '\")>' + user.email + '</a>' + emailVerified; }
 
             if ((user.otpsecret > 0) || (user.otphkeys > 0)) { username += ' <img src="images/key12.png" height=12 width=11 title="2nd factor authentication enabled" style="margin-top:2px" />'; }
@@ -7185,7 +7307,7 @@
             // Show user attributes
             var x = '<div style=min-height:80px><table style=width:100%>';
             var email = user.email?EscapeHtml(user.email):'<i>Not set</i>', everify = '';
-            if (serverinfo.emailcheck) { everify = ((user.emailVerified == true)?'<b style=color:green;cursor:pointer title="Email is verified">&#x1F5F8</b> ':'<b style=color:red;cursor:pointer title="Email not verified">&#x1F5F4</b> '); }
+            if (serverinfo.emailcheck) { everify = ((user.emailVerified == true) ? '<b style=color:green;cursor:pointer title="Email is verified">&#x2713</b> ' : '<b style=color:red;cursor:pointer title="Email not verified">&#x2717;</b> '); }
             if (user.name.toLowerCase() != user._id.split('/')[2]) { x += addDeviceAttribute('User Identifier', user._id.split('/')[2]); }
             if ((user.siteadmin != 0xFFFFFFFF) || (userinfo.siteadmin == 0xFFFFFFFF)) { // If we are not site admin, we can't change a admin email.
                 x += addDeviceAttribute('Email', everify + "<a style=cursor:pointer onclick=p30showUserEmailChangeDialog(event,\"" + userid + "\")>" + email + '</a> <a style=cursor:pointer onclick=doemail(event,\"' + user.email + '\")><img class=hoverButton src="images/link1.png" /></a>');
@@ -7541,7 +7663,8 @@
             } else {
                 for (var i in notifications) {
                     var n = notifications[i];
-                    var t = '<b>' + n.title + '</b>: '
+                    var t = '';
+                    if (n.title != null) { t = '<b>' + n.title + '</b>: ' }
                     var d = new Date(n.time);
                     var icon = 0;
                     if (n.nodeid != null) {
@@ -7621,13 +7744,15 @@
             // If web notifications are granted, use it.
             var notification = null;
             if (Notification && (Notification.permission == "granted")) {
-                var text = n.text.split('&reg;').join(''); // Clean up any HTML codes
+                var text = n.text.split('&reg;').join('').split('<b>').join('').split('</b>').join('').split('<br />').join('\r\n'); // Clean up any HTML codes
                 if (n.nodeid) {
                     var node = getNodeFromId(n.nodeid);
                     if (node) { notification = new Notification("{{{title}}} - " + node.name, { tag: n.tag, body: text, icon: '/images/notify/icons128-' + node.icon + '.png' }); }
                 } else {
                     if (n.icon == null) { n.icon = 0; }
-                    notification = new Notification("{{{title}}} - " + n.title, { tag: n.tag, body: text, icon: '/images/notify/icons128-' + n.icon + '.png' });
+                    var title = n.title;
+                    if (title == null) { title = ''; } else { title = ' - ' + n.title; }
+                    notification = new Notification("{{{title}}}" + title, { tag: n.tag, body: text, icon: '/images/notify/icons128-' + n.icon + '.png' });
                 }
                 notification.id = n.id;
                 notification.xtag = n.tag;
@@ -7837,6 +7962,7 @@
         // Display a dialog box
         // Parameters: Dialog Mode (0 = none), Dialog Title, Buttons (1 = OK, 2 = Cancel, 3 = OK & Cancel), Call back function(0 = Cancel, 1 = OK), Dialog Content (Mode 2 only)
         function setDialogMode(x, y, b, f, c, tag) {
+            setSessionActivity();
             QV('uiMenu', false);
             xxdialogMode = x;
             xxdialogFunc = f;
@@ -7855,20 +7981,23 @@
         }
 
         function dialogclose(x) {
+            setSessionActivity();
             var f = xxdialogFunc, b = xxdialogButtons, t = xxdialogTag;
             setDialogMode();
             if (((b & 8) || x) && f) f(x, t);
         }
 
         function center() {
+            setSessionActivity();
             if (xxcurrentView == 11) { deskAdjust(); }
             else if (xxcurrentView == 10) { masterUpdate(256); }
             else if (xxcurrentView == 1) { masterUpdate(4); }
         }
-        function messagebox(t, m) { QH('id_dialogMessage', m); setDialogMode(1, t, 1); }
-        function statusbox(t, m) { QH('id_dialogMessage', m); setDialogMode(1, t); }
+        function messagebox(t, m) { setSessionActivity(); QH('id_dialogMessage', m); setDialogMode(1, t, 1); }
+        function statusbox(t, m) { setSessionActivity(); QH('id_dialogMessage', m); setDialogMode(1, t); }
 
         function goBack() {
+            setSessionActivity();
             if (xxdialogMode) return;
             if (fullscreen) { deskToggleFull(); }
             if ((xxcurrentView >= 10) && (xxcurrentView < 20)) { go(1); } // Return to My Devices
@@ -7877,6 +8006,7 @@
         }
 
         function go(x) {
+            setSessionActivity();
             if (xxdialogMode || xxcurrentView == x) return;
             QV('uiMenu', false);
 
@@ -8004,6 +8134,7 @@
         function isPrivateIP(a) { return (a.startsWith('10.') || a.startsWith('172.16.') || a.startsWith('192.168.')); }
         function u2fSupported() { return (window.u2f && ((navigator.userAgent.indexOf('Chrome/') > 0) || (navigator.userAgent.indexOf('Firefox/') > 0) || (navigator.userAgent.indexOf('Opera/') > 0) || (navigator.userAgent.indexOf('Safari/') > 0))); }
         function findOne(arr1, arr2) { if ((arr1 == null) || (arr2 == null)) return false; return arr2.some(function (v) { return arr1.indexOf(v) >= 0; }); };
+        function copyTextToClip(txt) { function selectElementText(e) { if (document.selection) { var range = document.body.createTextRange(); range.moveToElementText(e); range.select(); } else if (window.getSelection) { var range = document.createRange(); range.selectNode(e); window.getSelection().removeAllRanges(); window.getSelection().addRange(range); } } var e = document.createElement('DIV'); e.textContent = txt; document.body.appendChild(e); selectElementText(e); document.execCommand('copy'); e.remove(); }
 
     </script>
 </body>

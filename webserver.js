@@ -242,7 +242,6 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     obj.agentStats = {
         createMeshAgentCount: 0,
         agentClose: 0,
-        agentTcpClose: 0,
         agentBinaryUpdate: 0,
         coreIsStableCount: 0,
         verifiedAgentConnectionCount: 0,
@@ -262,7 +261,8 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         invalidMeshTypeCount: 0,
         invalidDomainMesh2Count: 0,
         invalidMeshType2Count: 0,
-        duplicateAgentCount: 0
+        duplicateAgentCount: 0,
+        maxDomainDevicesReached: 0
     }
     obj.getAgentStats = function () { return obj.agentStats; }
 
@@ -1064,6 +1064,30 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         }
     }
 
+    // Called to process an agent invite request
+    function handleAgentInviteRequest(req, res) {
+        const domain = checkUserIpAddress(req, res);
+        if ((domain == null) || ((req.query.m == null) && (req.query.c == null))) { res.sendStatus(404); return; }
+        if (req.query.c != null) {
+            // A cookie is specified in the query string, use that
+            var cookie = obj.parent.decodeCookie(req.query.c, obj.parent.loginCookieEncryptionKey);
+            if (cookie == null) { res.sendStatus(404); return; }
+            var mesh = obj.meshes[cookie.mid];
+            if (mesh == null) { res.sendStatus(404); return; }
+            var installflags = cookie.f;
+            if (typeof installflags != 'number') { installflags = 0; }
+            res.render(obj.path.join(obj.parent.webViewsPath, 'agentinvite'), { title: domain.title, title2: domain.title2, domainurl: domain.url, meshid: mesh._id.split('/')[2], serverport: ((args.aliasport != null) ? args.aliasport : args.port), serverhttps: ((args.notls == true) ? '0' : '1'), servernoproxy: ((domain.agentnoproxy === true) ? '1' : '0'), meshname: encodeURIComponent(mesh.name), installflags: installflags });
+        } else if (req.query.m != null) {
+            // The MeshId is specified in the query string, use that
+            var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.m.toLowerCase()];
+            if (mesh == null) { res.sendStatus(404); return; }
+            var installflags = 0;
+            if (req.query.f) { installflags = parseInt(req.query.f); }
+            if (typeof installflags != 'number') { installflags = 0; }
+            res.render(obj.path.join(obj.parent.webViewsPath, 'agentinvite'), { title: domain.title, title2: domain.title2, domainurl: domain.url, meshid: mesh._id.split('/')[2], serverport: ((args.aliasport != null) ? args.aliasport : args.port), serverhttps: ((args.notls == true) ? '0' : '1'), servernoproxy: ((domain.agentnoproxy === true) ? '1' : '0'), meshname: encodeURIComponent(mesh.name), installflags: installflags });
+        }
+    }
+
     function handleDeleteAccountRequest(req, res) {
         const domain = checkUserIpAddress(req, res);
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
@@ -1673,6 +1697,17 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         } else {
             try { res.sendFile(obj.path.join(obj.parent.webPublicPath, 'images/mainwelcome.jpg')); } catch (e) { res.sendStatus(404); }
         }
+    }
+
+    // Handle domain redirection
+    function handleDomainRedirect(req, res) {
+        const domain = checkUserIpAddress(req, res);
+        if ((domain == null) || (domain.redirects == null)) { res.sendStatus(404); return; }
+        var urlArgs = '', urlName = null, splitUrl = req.originalUrl.split("?");
+        if (splitUrl.length > 1) { urlArgs = '?' + splitUrl[1]; }
+        if ((splitUrl.length > 0) && (splitUrl[0].length > 1)) { urlName = splitUrl[0].substring(1).toLowerCase(); }
+        if ((urlName == null) || (domain.redirects[urlName] == null)) { res.sendStatus(404); return; }
+        res.redirect(domain.redirects[urlName] + urlArgs);
     }
 
     // Take a "user/domain/userid/path/file" format and return the actual server disk file path if access is allowed
@@ -2671,6 +2706,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             obj.app.post(url + 'resetpassword', handleResetPasswordRequest);
             obj.app.post(url + 'resetaccount', handleResetAccountRequest);
             obj.app.get(url + 'checkmail', handleCheckMailRequest);
+            obj.app.get(url + 'agentinvite', handleAgentInviteRequest);
             obj.app.post(url + 'amtevents.ashx', obj.handleAmtEventRequest);
             obj.app.get(url + 'meshagents', obj.handleMeshAgentRequest);
             obj.app.get(url + 'messenger', handleMessengerRequest);
@@ -2690,6 +2726,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             obj.app.ws(url + 'control.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, function (ws1, req1, domain, user, cookie) { obj.meshUserHandler.CreateMeshUser(obj, obj.db, ws1, req1, obj.args, domain, user); }); });
             obj.app.get(url + 'logo.png', handleLogoRequest);
             obj.app.get(url + 'welcome.jpg', handleWelcomeImageRequest);
+
+            // Server redirects
+            if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { obj.app.get(url + j, handleDomainRedirect); } }
 
             // Server picture
             obj.app.get(url + 'serverpic.ashx', function (req, res) {

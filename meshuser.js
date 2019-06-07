@@ -54,7 +54,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
         if (obj.serverStatsTimer != null) { clearInterval(obj.serverStatsTimer); delete obj.serverStatsTimer; }
         if (req.session && req.session.ws && req.session.ws == ws) { delete req.session.ws; }
         if (parent.wssessions2[ws.sessionId]) { delete parent.wssessions2[ws.sessionId]; }
-        if (parent.wssessions[obj.user._id]) {
+        if ((obj.user != null) && (parent.wssessions[obj.user._id])) {
             var i = parent.wssessions[obj.user._id].indexOf(ws);
             if (i >= 0) {
                 parent.wssessions[obj.user._id].splice(i, 1);
@@ -286,6 +286,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
             var serverinfo = { name: domain.dns ? domain.dns : parent.certificates.CommonName, mpsname: parent.certificates.AmtMpsName, mpsport: mpsport, mpspass: args.mpspass, port: httpport, emailcheck: ((parent.parent.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap')), domainauth: ((domain.auth == 'sspi') || (domain.auth == 'ldap')) };
             if (args.notls == true) { serverinfo.https = false; } else { serverinfo.https = true; serverinfo.redirport = args.redirport; }
             if (typeof domain.userconsentflags == 'number') { serverinfo.consent = domain.userconsentflags; }
+            if ((typeof domain.usersessionidletimeout == 'number') && (domain.usersessionidletimeout > 0)) { serverinfo.timeout = (domain.usersessionidletimeout * 60 * 1000); }
 
             // Send server information
             try { ws.send(JSON.stringify({ action: 'serverinfo', serverinfo: serverinfo })); } catch (ex) { }
@@ -2498,6 +2499,17 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
 
                     break;
                 }
+            case 'createInviteLink': {
+                if (common.validateString(command.meshid, 8, 128) == false) break; // Check the meshid
+                if (common.validateInt(command.expire, 0, 99999) == false) break; // Check the expire time in hours
+                if (common.validateInt(command.flags, 0, 256) == false) break; // Check the flags
+                var mesh = parent.meshes[command.meshid];
+                if (mesh == null) break;
+                const inviteCookie = parent.parent.encodeCookie({ a: 4, mid: command.meshid, f: command.flags, expire: command.expire * 60 }, parent.parent.loginCookieEncryptionKey);
+                if (inviteCookie == null) break;
+                ws.send(JSON.stringify({ action: 'createInviteLink', meshid: command.meshid, expire: command.expire, cookie: inviteCookie }));
+                break;
+            }
             default: {
                 // Unknown user action
                 console.log('Unknown action from user ' + user.name + ': ' + command.action + '.');
