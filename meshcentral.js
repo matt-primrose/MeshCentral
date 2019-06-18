@@ -59,6 +59,7 @@ function CreateMeshCentralServer(config, args) {
     obj.currentVer = null;
     obj.serverKey = Buffer.from(obj.crypto.randomBytes(48), 'binary');
     obj.loginCookieEncryptionKey = null;
+    obj.invitationLinkEncryptionKey = null;
     obj.serverSelfWriteAllowed = true;
     obj.serverStatsCounter = Math.floor(Math.random() * 1000);
     obj.taskLimiter = obj.common.createTaskLimiterQueue(50, 20, 60); // (maxTasks, maxTaskTime, cleaningInterval) This is a task limiter queue to smooth out server work.
@@ -232,6 +233,9 @@ function CreateMeshCentralServer(config, args) {
         var i;
         //var wincmd = require('node-windows');
         //wincmd.list(function (svc) { console.log(svc); }, true);
+
+        // Check top level configuration for any unreconized values
+        if (config) { for (var i in config) { if ((typeof i == 'string') && (i.length > 0) && (i[0] != '_') && (['settings', 'domains', 'configfiles', 'smtp', 'letsencrypt', 'peers'].indexOf(i) == -1)) { console.log('WARNING: unrecognized configuration option \"' + i + '\".'); } } }
 
         if (typeof obj.args.userallowedip == 'string') { if (obj.args.userallowedip == '') { obj.args.userallowedip = null; } else { obj.args.userallowedip = obj.args.userallowedip.split(','); } }
         if (typeof obj.args.userblockedip == 'string') { if (obj.args.userblockedip == '') { obj.args.userblockedip = null; } else { obj.args.userblockedip = obj.args.userblockedip.split(','); } }
@@ -600,6 +604,7 @@ function CreateMeshCentralServer(config, args) {
         if (obj.args.mpsaliasport != null && (typeof obj.args.mpsaliasport != 'number')) obj.args.mpsaliasport = null;
         if (obj.args.notls == null && obj.args.redirport == null) obj.args.redirport = 80;
         if (obj.args.minifycore === 0) obj.args.minifycore = false;
+        if (typeof args.agentidletimeout != 'number') { args.agentidletimeout = 150000; } else { args.agentidletimeout *= 1000 } // Default agent idle timeout is 2m, 30sec.
 
         // Setup a site administrator
         if ((obj.args.admin) && (typeof obj.args.admin == 'string')) {
@@ -710,6 +715,30 @@ function CreateMeshCentralServer(config, args) {
 
         // Load any domain web certificates
         for (i in obj.config.domains) {
+            // Load any Intel AMT ACM activation certificates
+            if (obj.config.domains[i].amtacmactivation && obj.config.domains[i].amtacmactivation.certs) {
+                var badAcmConfigs = [], dnsmatch = [], amtAcmCertCount = 0;
+                for (var j in obj.config.domains[i].amtacmactivation.certs) {
+                    var acmconfig = obj.config.domains[i].amtacmactivation.certs[j];
+                    if (acmconfig.dnsmatch == null) { acmconfig.dnsmatch = [ j ]; }
+                    if (typeof acmconfig.dnsmatch == 'string') { acmconfig.dnsmatch = [ acmconfig.dnsmatch ]; }
+                    if (typeof acmconfig.dnsmatch.length == 0) { badAcmConfigs.push(j); continue; }
+                    if (typeof acmconfig.cert != 'string') { badAcmConfigs.push(j); continue; }
+                    var r = null;
+                    try { r = obj.certificateOperations.loadPfxCertificate(obj.path.join(obj.datapath, acmconfig.cert), acmconfig.certpass); } catch (ex) { console.log(ex); }
+                    if ((r == null) || (r.certs == null) || (r.keys == null) || (r.certs.length < 2) || (r.keys.length == 0)) { badAcmConfigs.push(j); continue; }
+                    delete acmconfig.cert;
+                    delete acmconfig.certpass;
+                    acmconfig.certs = r.certs;
+                    acmconfig.keys = r.keys;
+                    for (var k in acmconfig.dnsmatch) { if (dnsmatch.indexOf(acmconfig.dnsmatch[k]) == -1) { dnsmatch.push(acmconfig.dnsmatch[k]); } }
+                    amtAcmCertCount++;
+                }
+                // Remove all bad configurations
+                for (var j in badAcmConfigs) { console.log('WARNING: Incorrect Intel AMT ACM configuration "' + i + (i == '' ? '' : '/') + badAcmConfigs[j] + '".'); delete obj.config.domains[i].amtacmactivationcerts[j]; }
+                if (amtAcmCertCount == 0) { delete obj.config.domains[i].amtacmactivation; } else { obj.config.domains[i].amtacmactivation.dnsmatch = dnsmatch; }
+            }
+
             if (obj.config.domains[i].certurl != null) {
                 // Fix the URL and add 'https://' if needed
                 if (obj.config.domains[i].certurl.indexOf('://') < 0) { obj.config.domains[i].certurl = 'https://' + obj.config.domains[i].certurl; }
@@ -816,6 +845,7 @@ function CreateMeshCentralServer(config, args) {
                 if ((obj.config.smtp != null) && (obj.config.smtp.host != null) && (obj.config.smtp.from != null)) {
                     obj.mailserver = require('./meshmail.js').CreateMeshMail(obj);
                     obj.mailserver.verify();
+                    if (obj.args.lanonly == true) { console.log("WARNING: SMTP server has limited use in LAN mode."); }
                 }
 
                 // Start periodic maintenance
@@ -834,6 +864,15 @@ function CreateMeshCentralServer(config, args) {
                         }
                     });
                 }
+
+                // Load the invitation link encryption key from the database
+                obj.db.Get('InvitationLinkEncryptionKey', function (err, docs) {
+                    if ((docs.length > 0) && (docs[0].key != null) && (docs[0].key.length >= 160)) {
+                        obj.invitationLinkEncryptionKey = Buffer.from(docs[0].key, 'hex');
+                    } else {
+                        obj.invitationLinkEncryptionKey = obj.generateCookieKey(); obj.db.Set({ _id: 'InvitationLinkEncryptionKey', key: obj.invitationLinkEncryptionKey.toString('hex'), time: Date.now() });
+                    }
+                });
 
                 // Start collecting server stats every 5 minutes
                 setInterval(function () {
@@ -980,7 +1019,9 @@ function CreateMeshCentralServer(config, args) {
                 for (var i in obj.eventsDispatch[id]) {
                     if (targets.indexOf(obj.eventsDispatch[id][i]) == -1) { // Check if we already displatched to this target
                         targets.push(obj.eventsDispatch[id][i]);
-                        obj.eventsDispatch[id][i].HandleEvent(source, event);
+                        try { obj.eventsDispatch[id][i].HandleEvent(source, event); } catch (ex) {
+                            console.log(ex, obj.eventsDispatch[id][i]);
+                        }
                     }
                 }
             }
@@ -1432,6 +1473,7 @@ function CreateMeshCentralServer(config, args) {
         24: { id: 24, localname: 'meshagent_arm-linaro', rname: 'meshagent', desc: 'Linux ARM Linaro', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
         25: { id: 25, localname: 'meshagent_armhf', rname: 'meshagent', desc: 'Linux ARM - HardFloat', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // "armv6l" and "armv7l"
         26: { id: 26, localname: 'meshagent_arm64', rname: 'meshagent', desc: 'Linux ARMv8-64', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // "aarch64"
+        30: { id: 30, localname: 'meshagent_freebsd64', rname: 'meshagent', desc: 'FreeBSD x86-64', update: true, amt: false, platform: 'freebsd', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // FreeBSD x64
         10003: { id: 3, localname: 'MeshService.exe', rname: 'meshagent.exe', desc: 'Windows x86-32 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // Unsigned version of the Windows MeshAgent x86
         10004: { id: 4, localname: 'MeshService64.exe', rname: 'meshagent.exe', desc: 'Windows x86-64 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' } // Unsigned version of the Windows MeshAgent x64
     };

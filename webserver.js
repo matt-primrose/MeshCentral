@@ -647,7 +647,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                 req.session.loginmode = '4';
                                 req.session.tokenusername = xusername;
                                 req.session.tokenpassword = xpassword;
-                                res.redirect(domain.url);
+                                res.redirect(domain.url + getQueryPortion(req));
                             }, randomWaitTime);
                         } else {
                             // Login succesful
@@ -672,7 +672,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     } else {
                         delete req.session.passhint;
                     }
-                    res.redirect(domain.url);
+                    res.redirect(domain.url + getQueryPortion(req));
                 }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095)); // Wait for 2 to ~6 seconds.
             }
         });
@@ -686,7 +686,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             req.session.error = '<b style=color:#8C001A>Password change requested.</b>';
             req.session.resettokenusername = xusername;
             req.session.resettokenpassword = xpassword;
-            res.redirect(domain.url);
+            res.redirect(domain.url + getQueryPortion(req));
             return;
         }
 
@@ -726,12 +726,12 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 }
                 console.log("CurrentNode: " + req.session.currentNode);
                 // This redirect happens after finding node is completed
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
             });
             */
-            res.redirect(domain.url); // Temporary
+            res.redirect(domain.url + getQueryPortion(req)); // Temporary
         } else {
-            res.redirect(domain.url);
+            res.redirect(domain.url + getQueryPortion(req));
         }
         //});
     }
@@ -755,7 +755,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             if (i == -1) {
                 req.session.loginmode = '2';
                 req.session.error = '<b style=color:#8C001A>Unable to create account.</b>';
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
                 return;
             }
             var emailok = false, emaildomain = req.body.email.substring(i + 1).toLowerCase();
@@ -763,7 +763,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             if (emailok == false) {
                 req.session.loginmode = '2';
                 req.session.error = '<b style=color:#8C001A>Unable to create account.</b>';
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
                 return;
             }
         }
@@ -774,25 +774,25 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 req.session.loginmode = '2';
                 req.session.error = '<b style=color:#8C001A>Account limit reached.</b>';
                 console.log('max', req.session);
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
             } else {
                 if (!obj.common.validateUsername(req.body.username, 1, 64) || !obj.common.validateEmail(req.body.email, 1, 256) || !obj.common.validateString(req.body.password1, 1, 256) || !obj.common.validateString(req.body.password2, 1, 256) || (req.body.password1 != req.body.password2) || req.body.username == '~' || !obj.common.checkPasswordRequirements(req.body.password1, domain.passwordrequirements)) {
                     req.session.loginmode = '2';
                     req.session.error = '<b style=color:#8C001A>Unable to create account.</b>';
-                    res.redirect(domain.url);
+                    res.redirect(domain.url + getQueryPortion(req));
                 } else {
                     // Check if this email was already verified
                     obj.db.GetUserWithVerifiedEmail(domain.id, req.body.email, function (err, docs) {
                         if (docs.length > 0) {
                             req.session.loginmode = '2';
                             req.session.error = '<b style=color:#8C001A>Existing account with this email address.</b>';
-                            res.redirect(domain.url);
+                            res.redirect(domain.url + getQueryPortion(req));
                         } else {
                             // Check if there is domain.newAccountToken, check if supplied token is valid
                             if ((domain.newaccountspass != null) && (domain.newaccountspass != '') && (req.body.anewaccountpass != domain.newaccountspass)) {
                                 req.session.loginmode = '2';
                                 req.session.error = '<b style=color:#8C001A>Invalid account creation token.</b>';
-                                res.redirect(domain.url);
+                                res.redirect(domain.url + getQueryPortion(req));
                                 return;
                             }
                             // Check if user exists
@@ -822,7 +822,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
                                 obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
                             }
-                            res.redirect(domain.url);
+                            res.redirect(domain.url + getQueryPortion(req));
                         }
                     });
                 }
@@ -845,7 +845,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             delete req.session.success;
             delete req.session.error;
             delete req.session.passhint;
-            res.redirect(domain.url);
+            res.redirect(domain.url + getQueryPortion(req));
             return;
         }
 
@@ -859,7 +859,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 if (!obj.common.checkPasswordRequirements(req.body.rpassword1, domain.passwordrequirements)) {
                     req.session.loginmode = '6';
                     req.session.error = '<b style=color:#8C001A>Password rejected, use a different one.</b>';
-                    res.redirect(domain.url);
+                    res.redirect(domain.url + getQueryPortion(req));
                     return;
                 }
 
@@ -869,7 +869,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         // This is the same password, request a password change again
                         req.session.loginmode = '6';
                         req.session.error = '<b style=color:#8C001A>Password rejected, use a different one.</b>';
-                        res.redirect(domain.url);
+                        res.redirect(domain.url + getQueryPortion(req));
                     } else {
                         // Update the password, use a different salt.
                         require('./pass').hash(req.body.rpassword1, function (err, salt, hash, tag) {
@@ -902,7 +902,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 delete req.session.success;
                 delete req.session.error;
                 delete req.session.passhint;
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
                 return;
             }
         });
@@ -911,60 +911,74 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     // Called to process an account reset request
     function handleResetAccountRequest(req, res) {
         const domain = checkUserIpAddress(req, res);
-        if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
+        if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (obj.args.lanonly == true) || (obj.parent.certificates.CommonName == null) || (obj.parent.certificates.CommonName.indexOf('.') == -1)) { res.sendStatus(404); return; }
 
         // Get the email from the body or session.
         var email = req.body.email;
         if ((email == null) || (email == '')) { email = req.session.tokenemail; }
 
-        // Check the email stirng format
+        // Check the email string format
         if (!email || checkEmail(email) == false) {
             req.session.loginmode = '3';
             req.session.error = '<b style=color:#8C001A>Invalid email.</b>';
-            res.redirect(domain.url);
+            res.redirect(domain.url + getQueryPortion(req));
         } else {
             obj.db.GetUserWithVerifiedEmail(domain.id, email, function (err, docs) {
                 if ((err != null) || (docs.length == 0)) {
                     req.session.loginmode = '3';
                     req.session.error = '<b style=color:#8C001A>Account not found.</b>';
-                    res.redirect(domain.url);
+                    res.redirect(domain.url + getQueryPortion(req));
                 } else {
-                    var user = docs[0];
-                    if (checkUserOneTimePasswordRequired(domain, user) == true) {
-                        // Second factor setup, request it now.
-                        checkUserOneTimePassword(req, domain, user, req.body.token, req.body.hwtoken, function (result) {
-                            if (result == false) {
-                                // 2-step auth is required, but the token is not present or not valid.
-                                if ((req.body.token != null) || (req.body.hwtoken != null)) { req.session.error = '<b style=color:#8C001A>Invalid token, try again.</b>'; }
-                                req.session.loginmode = '5';
-                                req.session.tokenemail = email;
-                                res.redirect(domain.url);
-                            } else {
-                                // Send email to perform recovery.
-                                delete req.session.tokenemail;
-                                if (obj.parent.mailserver != null) {
-                                    obj.parent.mailserver.sendAccountResetMail(domain, user.name, user.email);
+                    // If many accounts have the same validated e-mail, we are going to use the first one for display, but sent a reset email for all accounts.
+                    var responseSent = false;
+                    for (var i in docs) {
+                        var user = docs[i];
+                        if (checkUserOneTimePasswordRequired(domain, user) == true) {
+                            // Second factor setup, request it now.
+                            checkUserOneTimePassword(req, domain, user, req.body.token, req.body.hwtoken, function (result) {
+                                if (result == false) {
+                                    if (i == 0) {
+                                        // 2-step auth is required, but the token is not present or not valid.
+                                        if ((req.body.token != null) || (req.body.hwtoken != null)) { req.session.error = '<b style=color:#8C001A>Invalid token, try again.</b>'; }
+                                        req.session.loginmode = '5';
+                                        req.session.tokenemail = email;
+                                        res.redirect(domain.url + getQueryPortion(req));
+                                    }
+                                } else {
+                                    // Send email to perform recovery.
+                                    delete req.session.tokenemail;
+                                    if (obj.parent.mailserver != null) {
+                                        obj.parent.mailserver.sendAccountResetMail(domain, user.name, user.email);
+                                        if (i == 0) {
+                                            req.session.loginmode = '1';
+                                            req.session.error = '<b style=color:darkgreen>Hold on, reset mail sent.</b>';
+                                            res.redirect(domain.url + getQueryPortion(req));
+                                        }
+                                    } else {
+                                        if (i == 0) {
+                                            req.session.loginmode = '3';
+                                            req.session.error = '<b style=color:#8C001A>Unable to sent email.</b>';
+                                            res.redirect(domain.url + getQueryPortion(req));
+                                        }
+                                    }
+                                }
+                            });
+                        } else {
+                            // No second factor, send email to perform recovery.
+                            if (obj.parent.mailserver != null) {
+                                obj.parent.mailserver.sendAccountResetMail(domain, user.name, user.email);
+                                if (i == 0) {
                                     req.session.loginmode = '1';
                                     req.session.error = '<b style=color:darkgreen>Hold on, reset mail sent.</b>';
-                                    res.redirect(domain.url);
-                                } else {
+                                    res.redirect(domain.url + getQueryPortion(req));
+                                }
+                            } else {
+                                if (i == 0) {
                                     req.session.loginmode = '3';
                                     req.session.error = '<b style=color:#8C001A>Unable to sent email.</b>';
-                                    res.redirect(domain.url);
+                                    res.redirect(domain.url + getQueryPortion(req));
                                 }
                             }
-                        });
-                    } else {
-                        // No second factor, send email to perform recovery.
-                        if (obj.parent.mailserver != null) {
-                            obj.parent.mailserver.sendAccountResetMail(domain, user.name, user.email);
-                            req.session.loginmode = '1';
-                            req.session.error = '<b style=color:darkgreen>Hold on, reset mail sent.</b>';
-                            res.redirect(domain.url);
-                        } else {
-                            req.session.loginmode = '3';
-                            req.session.error = '<b style=color:#8C001A>Unable to sent email.</b>';
-                            res.redirect(domain.url);
                         }
                     }
                 }
@@ -1070,7 +1084,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if ((domain == null) || ((req.query.m == null) && (req.query.c == null))) { res.sendStatus(404); return; }
         if (req.query.c != null) {
             // A cookie is specified in the query string, use that
-            var cookie = obj.parent.decodeCookie(req.query.c, obj.parent.loginCookieEncryptionKey);
+            var cookie = obj.parent.decodeCookie(req.query.c, obj.parent.invitationLinkEncryptionKey);
             if (cookie == null) { res.sendStatus(404); return; }
             var mesh = obj.meshes[cookie.mid];
             if (mesh == null) { res.sendStatus(404); return; }
@@ -1093,7 +1107,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
 
         // Check if the user is logged and we have all required parameters
-        if (!req.session || !req.session.userid || !req.body.apassword1 || (req.body.apassword1 != req.body.apassword2) || (req.session.domainid != domain.id)) { res.redirect(domain.url); return; }
+        if (!req.session || !req.session.userid || !req.body.apassword1 || (req.body.apassword1 != req.body.apassword2) || (req.session.domainid != domain.id)) { res.redirect(domain.url + getQueryPortion(req)); return; }
         var user = obj.users[req.session.userid];
         if (!user) return;
 
@@ -1124,10 +1138,10 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 obj.db.Remove(user._id);
                 delete obj.users[user._id];
                 req.session = null;
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
                 obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', username: user.name, action: 'accountremove', msg: 'Account removed', domain: domain.id });
             } else {
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
             }
         });
     }
@@ -1164,11 +1178,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
 
         // Check if the user is logged and we have all required parameters
-        if (!req.session || !req.session.userid || !req.body.apassword0 || !req.body.apassword1 || (req.body.apassword1 != req.body.apassword2) || (req.session.domainid != domain.id)) { res.redirect(domain.url); return; }
+        if (!req.session || !req.session.userid || !req.body.apassword0 || !req.body.apassword1 || (req.body.apassword1 != req.body.apassword2) || (req.session.domainid != domain.id)) { res.redirect(domain.url + getQueryPortion(req)); return; }
 
         // Get the current user
         var user = obj.users[req.session.userid];
-        if (!user) { res.redirect(domain.url); return; }
+        if (!user) { res.redirect(domain.url + getQueryPortion(req)); return; }
 
         // Check old password
         obj.checkUserPassword(domain, user, req.body.apassword0, function (result) {
@@ -1183,7 +1197,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     delete user.passtype;
                     obj.db.SetUser(user);
                     req.session.viewmode = 2;
-                    res.redirect(domain.url);
+                    res.redirect(domain.url + getQueryPortion(req));
                     obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', username: user.name, action: 'passchange', msg: 'Account password changed: ' + user.name, domain: domain.id });
                 }, 0);
             }
@@ -1218,7 +1232,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
 
         // Check if we have an incomplete domain name in the path
-        if ((domain.id != '') && (domain.dns == null) && (req.url.split('/').length == 2)) { res.redirect(domain.url); return; }
+        if ((domain.id != '') && (domain.dns == null) && (req.url.split('/').length == 2)) { res.redirect(domain.url + getQueryPortion(req)); return; }
 
         if (obj.args.nousers == true) {
             // If in single user mode, setup things here.
@@ -1286,7 +1300,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         // If a user exists and is logged in, serve the default app, otherwise server the login app.
         if (req.session && req.session.userid && obj.users[req.session.userid]) {
             var user = obj.users[req.session.userid];
-            if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url); return; } // Check is the session is for the correct domain
+            if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check is the session is for the correct domain
 
             // Check if this is a locked account
             if ((user.siteadmin != null) && ((user.siteadmin & 32) != 0) && (user.siteadmin != 0xFFFFFFFF)) {
@@ -1296,7 +1310,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 delete req.session.currentNode;
                 delete req.session.passhint;
                 req.session.error = '<b style=color:#8C001A>Account locked.</b>';
-                res.redirect(domain.url);
+                res.redirect(domain.url + getQueryPortion(req));
                 return;
             }
 
@@ -1339,6 +1353,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             if (parent.config.settings.no2factorauth !== true) { features += 0x00020000; } // Enable WebAuthn/FIDO2 support
             if ((obj.args.nousers != true) && (domain.passwordrequirements != null) && (domain.passwordrequirements.force2factor === true)) { features += 0x00040000; } // Force 2-factor auth
             if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) { features += 0x00080000; } // LDAP or SSPI in use, warn that users must login first before adding a user to a group.
+            if (domain.amtacmactivation) { features += 0x00100000; } // Intel AMT ACM activation/upgrade is possible
 
             // Create a authentication cookie
             const authCookie = obj.parent.encodeCookie({ userid: user._id, domainid: domain.id }, obj.parent.loginCookieEncryptionKey);
@@ -1379,14 +1394,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 obj.db.GetUserWithVerifiedEmail(domain.id, req.session.tokenemail, function (err, docs) {
                     if ((err != null) || (docs.length == 0)) {
                         req.session = null;
-                        res.redirect(domain.url);
+                        res.redirect(domain.url + getQueryPortion(req));
                     } else {
                         var user = obj.users[docs[0]._id];
                         if (user != null) {
                             getHardwareKeyChallenge(req, domain, user, function (hwchallenge) { handleRootRequestLogin(req, res, domain, hwchallenge, passRequirements); });
                         } else {
                             req.session = null;
-                            res.redirect(domain.url);
+                            res.redirect(domain.url + getQueryPortion(req));
                         }
                     }
                 });
@@ -1416,7 +1431,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         var message = '';
         if (err != null) message = '<p class="msg error">' + err + '</p>';
         if (msg != null) message = '<p class="msg success">' + msg + '</p>';
-        var emailcheck = ((obj.parent.mailserver != null) && (domain.auth != 'sspi'));
+        var emailcheck = ((obj.parent.mailserver != null) && (obj.parent.certificates.CommonName != null) && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.lanonly != true) && (domain.auth != 'sspi') && (domain.auth != 'ldap'))
 
         // Check if we are allowed to create new users using the login screen
         var newAccountsAllowed = true;
@@ -1472,7 +1487,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             // Send the terms from the database
             res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
             if (req.session && req.session.userid) {
-                if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url); return; } // Check is the session is for the correct domain
+                if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check is the session is for the correct domain
                 var user = obj.users[req.session.userid];
                 var logoutcontrol = 'Welcome ' + user.name + '.';
                 if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrol += ' <a href=' + domain.url + 'logout?' + Math.random() + ' style=color:white>Logout</a>'; } // If a default user is in use or no user mode, don't display the logout button
@@ -1490,7 +1505,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     // Send the terms from terms.txt
                     res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
                     if (req.session && req.session.userid) {
-                        if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url); return; } // Check is the session is for the correct domain
+                        if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check is the session is for the correct domain
                         var user = obj.users[req.session.userid];
                         var logoutcontrol = 'Welcome ' + user.name + '.';
                         if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrol += ' <a href=' + domain.url + 'logout?' + Math.random() + ' style=color:white>Logout</a>'; } // If a default user is in use or no user mode, don't display the logout button
@@ -1503,7 +1518,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 // Send the default terms
                 res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' });
                 if (req.session && req.session.userid) {
-                    if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url); return; } // Check is the session is for the correct domain
+                    if (req.session.domainid != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check is the session is for the correct domain
                     var user = obj.users[req.session.userid];
                     var logoutcontrol = 'Welcome ' + user.name + '.';
                     if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrol += ' <a href=' + domain.url + 'logout?' + Math.random() + ' style=color:white>Logout</a>'; } // If a default user is in use or no user mode, don't display the logout button
@@ -1706,8 +1721,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         var urlArgs = '', urlName = null, splitUrl = req.originalUrl.split("?");
         if (splitUrl.length > 1) { urlArgs = '?' + splitUrl[1]; }
         if ((splitUrl.length > 0) && (splitUrl[0].length > 1)) { urlName = splitUrl[0].substring(1).toLowerCase(); }
-        if ((urlName == null) || (domain.redirects[urlName] == null)) { res.sendStatus(404); return; }
-        res.redirect(domain.redirects[urlName] + urlArgs);
+        if ((urlName == null) || (domain.redirects[urlName] == null) || (urlName[0] == '_')) { res.sendStatus(404); return; }
+        if (domain.redirects[urlName] == '~showversion') {
+            // Show the current version
+            res.end('MeshCentral v' + obj.parent.currentVer);
+        } else {
+            // Perform redirection
+            res.redirect(domain.redirects[urlName] + urlArgs + getQueryPortion(req));
+        }
     }
 
     // Take a "user/domain/userid/path/file" format and return the actual server disk file path if access is allowed
@@ -2728,7 +2749,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             obj.app.get(url + 'welcome.jpg', handleWelcomeImageRequest);
 
             // Server redirects
-            if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { obj.app.get(url + j, handleDomainRedirect); } }
+            if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { if (j[0] != '_') { obj.app.get(url + j, handleDomainRedirect); } } }
 
             // Server picture
             obj.app.get(url + 'serverpic.ashx', function (req, res) {
@@ -3135,6 +3156,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if (typeof req.headers['user-agent'] != 'string') return false;
         return (req.headers['user-agent'].toLowerCase().indexOf('mobile') >= 0);
     }
+
+    // Return the query string portion of the URL, the ? and anything after.
+    function getQueryPortion(req) { var s = req.url.indexOf('?'); if (s == -1) { if (req.body && req.body.urlargs) { return req.body.urlargs; } return ''; } return req.url.substring(s); }
 
     return obj;
 };

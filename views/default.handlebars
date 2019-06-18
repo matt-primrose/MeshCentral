@@ -28,7 +28,7 @@
     <script type="text/javascript" src="scripts/qrcode.min.js"></script>
     <script keeplink=1 type="text/javascript" src="scripts/u2f-api.js"></script>
     <script keeplink=1 type="text/javascript" src="scripts/charts.js"></script>
-    <script keeplink=1 type="text/javascript" src="scripts/filesaver.1.1.20151003.js"></script>
+    <script keeplink=1 type="text/javascript" src="scripts/filesaver.js"></script>
     <script keeplink=1 type="text/javascript" src="scripts/ol.js"></script>
     <script keeplink=1 type="text/javascript" src="scripts/ol3-contextmenu.js"></script>
     <title>{{{title}}}</title>
@@ -1013,6 +1013,7 @@
             meshserver = MeshServerCreateControl(domainUrl, authCookie);
             meshserver.onStateChanged = onStateChanged;
             meshserver.onMessage = onMessage;
+            meshserver.trace = (args.trace == 1);
             meshserver.Start();
 
             // Setup page controls
@@ -1028,7 +1029,6 @@
             masterUpdate(3)
             for (var j = 1; j < 5; j++) { Q('devViewButton' + j).classList.remove('viewSelectorSel'); }
             Q('devViewButton' + Q('viewselect').value).classList.add('viewSelectorSel');
-
 
             // Setup upload drag & drop
             Q('p5filetable').addEventListener("drop", p5fileDragDrop, false);
@@ -1389,7 +1389,7 @@
                         node.lastconnect = message.time;
                         node.lastaddr = message.addr;
                         if ((currentNode._id == node._id) && (Q('MainComputerState').innerHTML == '')) {
-                            QH('MainComputerState', '<span>Last seen:<br />' + new Date(node.lastconnect).toLocaleDateString() + ', ' + new Date(node.lastconnect).toLocaleTimeString() + '</span>');
+                            QH('MainComputerState', '<span>Last seen:<br />' + printDateTime(new Date(node.lastconnect)) + '</span>');
                         }
                     }
                     break;
@@ -1435,7 +1435,7 @@
                         } else {
                             var x = '<div class=dialogText>';
 
-                            if (currentNode.lastconnect) { x += addHtmlValue2('Last agent connection', new Date(currentNode.lastconnect).toLocaleString()); }
+                            if (currentNode.lastconnect) { x += addHtmlValue2('Last agent connection', printDateTime(new Date(currentNode.lastconnect))); }
                             if (currentNode.lastaddr) {
                                 var splitip = currentNode.lastaddr.split(':');
                                 if (splitip.length > 2) {
@@ -1451,7 +1451,7 @@
                                 }
                             }
 
-                            x += addHtmlValue2('Last interfaces update', new Date(message.updateTime).toLocaleString());
+                            x += addHtmlValue2('Last interfaces update', printDateTime(new Date(message.updateTime)));
                             for (var i in message.netif) {
                                 var net = message.netif[i];
                                 x += '<hr />'
@@ -1529,7 +1529,7 @@
                     var n = Q('d2devNotes');
                     if (n && (message.id == decodeURIComponent(n.attributes['noteid'].value))) {
                         if (message.notes) { QH('d2devNotes', decodeURIComponent(message.notes)); } else { QH('d2devNotes', ''); }
-                        var ro = n.attributes['ro'].value == 'true';
+                        var ro = (n.attributes['ro'].value == 'true');
                         if (ro == false) { // If we have permissions, set read/write on this note.
                             n.removeAttribute('readonly');
                             QE('idx_dlgOkButton', true);
@@ -2710,7 +2710,10 @@
                 x += "<div id=emailInviteDiv style=display:none>Invite someone to install the mesh agent. An email with be sent with the link to the mesh agent installation for the \"" + EscapeHtml(mesh.name) + "\" device group.<br /><br />";
                 x += addHtmlValue('Name (optional)', '<input id=agentInviteName value="" style=width:230px maxlength=64 />');
                 x += addHtmlValue('Email', '<input id=agentInviteEmail style=width:230px placeholder="example@email.com" onkeyup=validateAgentInvite()></input>');
-                x += addHtmlValue('Operating System', '<select id=agentInviteNameOs style=width:236px><option value=0>Any supported</option><option value=1>Windows only</option><option value=3>Apple MacOS only</option><option value=2>Linux only</option></select>');
+                x += addHtmlValue('Operating System', '<select id=agentInviteNameOs onchange=d2ChangedInviteType() style=width:236px><option value=4>Send installation link</option><option value=0 selected>Any supported</option><option value=1>Windows only</option><option value=3>Apple MacOS only</option><option value=2>Linux only</option></select>');
+                x += '<div id=d2agentexpirediv>';
+                x += addHtmlValue('Link Expiration', '<select id=agentInviteExpire style=width:236px><option value=1>1 hour</option><option value=8>8 hours</option><option value=24>1 day</option><option value=168>1 week</option><option value=5040>1 month</option><option value=0>Unlimited</option></select>');
+                x += '</div>';
                 x += addHtmlValue('Installation Type', '<select id=agentInviteType style=width:236px><option value=0>Background and interactive</option><option value=2>Background only</option><option value=1>Interactive only</option></select>');
                 x += addHtmlValue('Message<br />(optional)', '<textarea id=agentInviteMessage value="" style=width:230px;height:100px;resize:none maxlength=1024 /></textarea>');
                 x += '</div>';
@@ -2719,7 +2722,7 @@
             x += addHtmlValue('Link Expiration', '<select id=d2inviteExpire style=width:236px onchange=d2RequestInvitationLink()><option value=1>1 hour</option><option value=8>8 hours</option><option value=24>1 day</option><option value=168>1 week</option><option value=5040>1 month</option><option value=0>Unlimited</option></select>');
             x += '<div id=agentInvitationLinkDiv style="text-align:center;font-size:large;margin:16px;display:none"><a id=agentInvitationLink target="_blank" href="" style=cursor:pointer></a> <img src=images/link4.png height=10 width=10 title="Copy link to clipboard" style=cursor:pointer onclick=d2CopyInviteToClip()></div></div>';
             setDialogMode(2, "Invite", 3, performAgentInvite, x, meshid);
-            validateAgentInvite();
+            if (features & 64) { d2ChangedInviteType(); } else { validateAgentInvite(); }
             d2RequestInvitationLink();
         }
 
@@ -2729,7 +2732,8 @@
 
         function d2ChangedInviteType() {
             QV('urlInviteDiv', Q('d2InviteType').value == 0);
-            if (features & 64) { QV('emailInviteDiv', Q('d2InviteType').value == 1); }
+            QV('d2agentexpirediv', Q('agentInviteNameOs').value == 4);
+            QV('emailInviteDiv', Q('d2InviteType').value == 1);
             validateAgentInvite();
         }
 
@@ -2747,7 +2751,7 @@
 
         function performAgentInvite(button, meshid) {
             if ((features & 64) && (Q('d2InviteType').value == 1)) {
-                meshserver.send({ action: 'inviteAgent', meshid: meshid, email: Q('agentInviteEmail').value, name: Q('agentInviteName').value, os: Q('agentInviteNameOs').value, flags: Q('agentInviteType').value, msg: Q('agentInviteMessage').value });
+                meshserver.send({ action: 'inviteAgent', meshid: meshid, email: Q('agentInviteEmail').value, name: Q('agentInviteName').value, os: Q('agentInviteNameOs').value, flags: Q('agentInviteType').value, msg: Q('agentInviteMessage').value, expire: parseInt(Q('agentInviteExpire').value) });
             }
         }
 
@@ -2855,16 +2859,23 @@
                 flag = Q('aginsSelect').value;
                 if (parseInt(flag) >= 5) { name = name.toLowerCase(); } else { name += '.exe'; }
             }
-            try { xdr = new XDomainRequest(); } catch (e) { }
-            if (!xdr) xdr = new XMLHttpRequest();
-            xdr.open("GET", window.location.href + path + flag);
-            xdr.timeout = 15000;
-            xdr.responseType = "blob";
-            xdr.onprogress = function (x) { /*console.log(x);*/ };
-            xdr.onload = function (e) { saveAs(new Blob([e.target.response], { type: "application/octet-stream" }), name); if (xxdialogTag == 'fileDownload') { setDialogMode(0); } };
-            xdr.onerror = function () { if (xxdialogTag == 'fileDownload') { setDialogMode(0); } alert('Agent downloads timeout.'); };
-            xdr.ontimeout = function () { if (xxdialogTag == 'fileDownload') { setDialogMode(0); } alert('Unable to download agent.'); };
-            xdr.send();
+
+            if (args.filedownloadtab == 1) {
+                // Open a new tab with download
+                window.open(window.location.origin + '/' + path + flag, '_blank');
+            } else {
+                // Background download & save
+                try { xdr = new XDomainRequest(); } catch (e) { }
+                if (!xdr) xdr = new XMLHttpRequest();
+                xdr.open("GET", window.location.origin + '/' + path + flag);
+                xdr.timeout = 15000;
+                xdr.responseType = "blob";
+                xdr.onprogress = function (x) { /*console.log(x);*/ };
+                xdr.onload = function (e) { saveAs(new Blob([e.target.response], { type: "application/octet-stream" }), name); if (xxdialogTag == 'fileDownload') { setDialogMode(0); } };
+                xdr.onerror = function () { if (xxdialogTag == 'fileDownload') { setDialogMode(0); } alert('Agent downloads timeout.'); };
+                xdr.ontimeout = function () { if (xxdialogTag == 'fileDownload') { setDialogMode(0); } alert('Unable to download agent.'); };
+                xdr.send();
+            }
         }
 
         function addAgentToMeshClick() {
@@ -3934,7 +3945,7 @@
                 if ((connectivity & 1) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="Agent connected">Agent connected</span>'; }
                 if ((connectivity & 2) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="Intel&reg; AMT connected">Intel&reg; AMT connected</span>'; }
                 else if ((connectivity & 4) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="Intel&reg; AMT detected">Intel&reg; AMT detected</span>'; }
-                if ((powerstate == '') && node.lastconnect) { powerstate = '<span style=font-size:12px>Last seen:<br />' + new Date(node.lastconnect).toLocaleDateString() + ', ' + new Date(node.lastconnect).toLocaleTimeString() + '</span>'; }
+                if ((powerstate == '') && node.lastconnect) { powerstate = '<span style=font-size:12px>Last seen:<br />' + printDateTime(new Date(node.lastconnect)) + '</span>'; }
                 QH('MainComputerState', powerstate);
 
                 // Set the node icon
@@ -3993,6 +4004,11 @@
 
                 // Update the web page title
                 if ((currentNode) && (xxcurrentView >= 10) && (xxcurrentView < 20)) { document.title = decodeURIComponent("{{{extitle}}}") + ' - ' + currentNode.name; } else { document.title = decodeURIComponent("{{{extitle}}}"); }
+
+                // Clear user consent status if present
+                p11clearConsoleMsg();
+                p12clearConsoleMsg();
+                p13clearConsoleMsg();
             }
             setupDesktop(); // Always refresh the desktop, even if we are on the same device, we need to do some canvas switching.
             if (!panel) panel = 10;
@@ -4118,12 +4134,12 @@
                         var te = Math.min(Math.min(end, block[1]), now);
                         var width = Math.round(((te - ts) * totalWidth) / 86400000);
                         if (width > 0) {
-                            var title = powerStateStrings2[block[2]] + ' from ' + new Date(ts).toLocaleTimeString() + ' to ' + new Date(te).toLocaleTimeString() + '.';
+                            var title = powerStateStrings2[block[2]] + ' from ' + printTime(new Date(ts)) + ' to ' + printTime(new Date(te)) + '.';
                             datavalue += '<div class="pwState ' + powerColor(block[2]) + '" title="' + title + '" style="width:' + width + 'px;"></div>';
                         }
                     }
                 }
-                x += '<tr class=' + (((count % 2) == 0)?'altBack':'') + '><td><div>&nbsp;' + date.toLocaleDateString() + '<div></div></div></td><td><div>' + datavalue + '</div></td></tr>';
+                x += '<tr class=' + (((count % 2) == 0)?'altBack':'') + '><td><div>&nbsp;' + printDate(date) + '<div></div></div></td><td><div>' + datavalue + '</div></td></tr>';
                 ++count;
                 date = new Date(date.getTime() - (1000 * 60 * 60 * 24)); // Substract one day
             }
@@ -4475,6 +4491,7 @@
         function autoConnectDesktop(e) { if (autoConnectDesktopTimer == null) { autoConnectDesktopTimer = setInterval(connectDesktop, 100); } else { clearInterval(autoConnectDesktopTimer); autoConnectDesktopTimer = null; } }
 
         function connectDesktop(e, contype) {
+            p11clearConsoleMsg();
             if (desktop == null) {
                 desktopNode = currentNode;
                 if (contype == 2) {
@@ -5068,6 +5085,7 @@
         function autoConnectTerminal(e) { if (autoConnectTerminalTimer == null) { autoConnectTerminalTimer = setInterval(connectTerminal, 100); } else { clearInterval(autoConnectTerminalTimer); autoConnectTerminalTimer = null; } }
 
         function connectTerminal(e, contype) {
+            p12clearConsoleMsg();
             if (!terminal) {
                 if (contype == 2) {
                     // Setup the Intel AMT terminal
@@ -5102,7 +5120,6 @@
                     terminal.attemptWebRTC = attemptWebRTC;
                     terminal.onStateChanged = onTerminalStateChange;
                     terminal.onConsoleMessageChange = function () {
-                        console.log('terminal.consoleMessage', terminal.consoleMessage);
                         p12clearConsoleMsg();
                         if (terminal.consoleMessage) {
                             QH('p12TermConsoleMsg', EscapeHtml(terminal.consoleMessage).split('\n').join('<br />'));
@@ -5224,6 +5241,7 @@
         function autoConnectFiles(e) { if (autoConnectFilesTimer == null) { autoConnectFilesTimer = setInterval(connectFiles, 100); } else { clearInterval(autoConnectFilesTimer); autoConnectFilesTimer = null; } }
 
         function connectFiles(e) {
+            p13clearConsoleMsg();
             if (!files) {
                 // Setup a mesh agent files
                 files = CreateAgentRedirect(meshserver, CreateRemoteFiles(p13gotFiles), serverPublicNamePort, authCookie, domainUrl);
@@ -5306,7 +5324,7 @@
 
                 // Figure out the date
                 var fdatestr = '';
-                if (f.d != null) { var fdate = new Date(f.d), fdatestr = (fdate.getMonth() + 1) + "/" + (fdate.getDate()) + "/" + fdate.getFullYear() + " " + fdate.toLocaleTimeString() + "&nbsp;"; }
+                if (f.d != null) { var fdate = new Date(f.d), fdatestr = printDateTime(fdate) + "&nbsp;"; }
 
                 // Figure out the size
                 var fsize = '';
@@ -5655,10 +5673,10 @@
             for (var i in currentDeviceEvents) {
                 var event = currentDeviceEvents[i];
                 var time = new Date(event.time);
-                if (time.toLocaleDateString() != dateHeader) {
+                if (printDate(time) != dateHeader) {
                     if (dateHeader != null) x += '</table>';
-                    x += '<table style=width:100% cellpadding=0 cellspacing=0><tr><td class=DevSt colspan=4>' + time.toLocaleDateString() + '</td></tr>';
-                    dateHeader = time.toLocaleDateString();
+                    dateHeader = printDate(time);
+                    x += '<table style=width:100% cellpadding=0 cellspacing=0><tr><td class=DevSt colspan=4>' + dateHeader + '</td></tr>';
                 }
                 var icon = 'si3';
                 if (event.etype == 'user') icon = 'm2';
@@ -5666,7 +5684,7 @@
 
                 var msg = event.msg.split('(R)').join('&reg;');
                 //if (event.username && event.username != userinfo.name) { msg += ': ' + event.username; }
-                x += '<tr><td style=width:18px><div class=' + icon + '></div></td><td class=g1 style=float:none>&nbsp;</td><td style=background-color:#C9C9C9>' + time.toLocaleTimeString() + ' - ' + msg + '</td><td class=g2 style=float:none>&nbsp;</td></tr><tr style=height:2px></tr>';
+                x += '<tr><td style=width:18px><div class=' + icon + '></div></td><td class=g1 style=float:none>&nbsp;</td><td style=background-color:#C9C9C9>' + printTime(time) + ' - ' + msg + '</td><td class=g2 style=float:none>&nbsp;</td></tr><tr style=height:2px></tr>';
             }
             if (dateHeader != null) x += '</table>';
             if (x == '') x = "<br><i>No Events Found</i><br><br>";
@@ -6251,6 +6269,9 @@
                     else if (currentMesh.amt.type == 2) {
                         intelAmtPolicy = 'Simple Client Control Mode (CCM)';
                         if (currentMesh.amt.cirasetup == 2) { intelAmtPolicy += ' + CIRA'; }
+                    } else if (currentMesh.amt.type == 3) {
+                        intelAmtPolicy = 'Simple Admin Control Mode (ACM)';
+                        if (currentMesh.amt.cirasetup == 2) { intelAmtPolicy += ' + CIRA'; }
                     }
                 }
                 x += addHtmlValue('Intel&reg; AMT', addLinkConditional(intelAmtPolicy, 'p20editMeshAmt()', meshrights & 1));
@@ -6320,17 +6341,18 @@
 
         function p20editMeshAmt() {
             if (xxdialogMode) return;
-            var x = '';
-            x += addHtmlValue('Type', '<select id=dp20amtpolicy style=width:230px onchange=p20editMeshAmtChange()><option value=0>No Policy</option><option value=1>Deactivate Client Control Mode (CCM)</option><option value=2>Simple Client Control Mode (CCM)</option></select>');
+            var x = '', acmoption = '';
+            if ((features & 0x100000) != 0) { acmoption = '<option value=3>Simple Admin Control Mode (ACM)</option>'; }
+            x += addHtmlValue('Type', '<select id=dp20amtpolicy style=width:230px onchange=p20editMeshAmtChange()><option value=0>No Policy</option><option value=1>Deactivate Client Control Mode (CCM)</option><option value=2>Simple Client Control Mode (CCM)</option>' + acmoption + '</select>');
             x += '<div id=dp20amtpolicydiv></div>';
             setDialogMode(2, "Intel&reg; AMT Policy", 3, p20editMeshAmtEx, x);
             if (currentMesh.amt) { Q('dp20amtpolicy').value = currentMesh.amt.type; }
             p20editMeshAmtChange();
 
             // Set the current Intel AMT policy
-            if (currentMesh.amt && currentMesh.amt.type == 2) {
+            if (currentMesh.amt && (currentMesh.amt.type == 2) || (currentMesh.amt.type == 3)) {
                 Q('dp20amtpolicypass').value = currentMesh.amt.password;
-                Q('dp20amtbadpass').value = currentMesh.amt.badpass;
+                if (currentMesh.amt.type == 2) { Q('dp20amtbadpass').value = currentMesh.amt.badpass; }
                 if ((features & 0x400) == 0) { Q('dp20amtcira').value = currentMesh.amt.cirasetup; }
             }
 
@@ -6339,13 +6361,23 @@
 
         function p20editMeshAmtChange() {
             var ptype = Q('dp20amtpolicy').value, x = '';
-            if (ptype == 2) {
+            if (ptype >= 2) {
                 x = addHtmlValue('Password*', '<input id=dp20amtpolicypass style=width:230px maxlength=32 onchange=dp20amtValidatePolicy() onkeyup=dp20amtValidatePolicy() />')
-                x += addHtmlValue('Password mismatch', "<select id=dp20amtbadpass style=width:230px><option value=0>Do nothing</option><option value=1>Reactivate Intel&reg; AMT</option></select>");
-                if ((features & 0x400) == 0) { x += addHtmlValue('<span title="Client Initiated Remote Access">CIRA</span>', "<select id=dp20amtcira style=width:230px><option value=0>Don't configure</option><option value=1>Don't connect to server</option><option value=2>Connect to server</option></select>"); }
+                if (ptype == 2) { x += addHtmlValue('Password mismatch', "<select id=dp20amtbadpass style=width:230px><option value=0>Do nothing</option><option value=1>Reactivate Intel&reg; AMT</option></select>"); }
+                if ((features & 0x400) == 0) {
+                    if (ptype == 2) {
+                        x += addHtmlValue('<span title="Client Initiated Remote Access">CIRA</span>', "<select id=dp20amtcira style=width:230px><option value=0>Don't configure</option><option value=1>Don't connect to server</option><option value=2>Connect to server</option></select>");
+                    } else {
+                        x += addHtmlValue('<span title="Client Initiated Remote Access">CIRA</span>', "<select id=dp20amtcira style=width:230px><option value=0>Don't configure</option><option value=2>Connect to server</option></select>");
+                    }
+                }
                 x += '<br/><span style="font-size:10px">* Recommanded, leave blank to assign a random password to each device.</span><br/>';
-                x += '<span style="font-size:10px">This policy will not impact devices with Intel&reg; AMT in ACM mode.</span><br/>';
-                x += '<span style="font-size:10px">This is not a secure policy as agents will be performing activation.</span>';
+                if (ptype == 2) {
+                    x += '<span style="font-size:10px">This policy will not impact devices with Intel&reg; AMT in ACM mode.</span><br/>';
+                    x += '<span style="font-size:10px">This is not a secure policy as agents will be performing activation.</span>';
+                } else {
+                    x += '<span style="font-size:10px">During activation, the agent will have access to admin password infomation.</span>';
+                }
             }
             QH('dp20amtpolicydiv', x);
         }
@@ -6360,6 +6392,9 @@
             var ptype = parseInt(Q('dp20amtpolicy').value), amtpolicy = { type: ptype };
             if (ptype == 2) {
                 amtpolicy = { type: ptype, password: Q('dp20amtpolicypass').value, badpass: parseInt(Q('dp20amtbadpass').value) };
+                if ((features & 0x400) == 0) { amtpolicy.cirasetup = parseInt(Q('dp20amtcira').value); } else { amtpolicy.cirasetup = 1; }
+            } else if (ptype == 3) {
+                amtpolicy = { type: ptype, password: Q('dp20amtpolicypass').value };
                 if ((features & 0x400) == 0) { amtpolicy.cirasetup = parseInt(Q('dp20amtcira').value); } else { amtpolicy.cirasetup = 1; }
             }
             meshserver.send({ action: 'meshamtpolicy', meshid: currentMesh._id, amtpolicy: amtpolicy });
@@ -6651,7 +6686,7 @@
 
                 // Figure out the date
                 var fdatestr = '';
-                if (f.d != null) { var fdate = new Date(f.d), fdatestr = (fdate.getMonth() + 1) + "/" + (fdate.getDate()) + "/" + fdate.getFullYear() + " " + fdate.toLocaleTimeString() + "&nbsp;"; }
+                if (f.d != null) { var fdate = new Date(f.d), fdatestr = printDateTime(fdate) + "&nbsp;"; }
 
                 // Figure out the size
                 var fsize = '';
@@ -6862,10 +6897,10 @@
             for (var i in events) {
                 var event = events[i], time = new Date(event.time);
                 if (event.msg) {
-                    if (time.toLocaleDateString() != dateHeader) {
+                    if (printDate(time) != dateHeader) {
                         if (dateHeader != null) x += '</table>';
-                        x += '<table class=p3eventsTable cellpadding=0 cellspacing=0><tr><td colspan=4 class=DevSt>' + time.toLocaleDateString() + '</td></tr>';
-                        dateHeader = time.toLocaleDateString();
+                        dateHeader = printDate(time);
+                        x += '<table class=p3eventsTable cellpadding=0 cellspacing=0><tr><td colspan=4 class=DevSt>' + dateHeader + '</td></tr>';
                     }
                     var icon = 'si3';
                     if (event.etype == 'user') icon = 'm2';
@@ -6873,7 +6908,7 @@
 
                     var msg = event.msg.split('(R)').join('&reg;');
                     if (event.username && event.username != userinfo.name) { msg += ': ' + event.username; }
-                    x += '<tr onmouseover=eventMouseHover(this,1) onmouseout=eventMouseHover(this,0) style=cursor:pointer><td style=width:18px><div class=' + icon + '></div></td><td class=g1>&nbsp;</td><td class=style10>' + time.toLocaleTimeString() + ' - ' + msg + '</td><td class=g2>&nbsp;</td></tr><tr style=height:2px></tr>';
+                    x += '<tr onmouseover=eventMouseHover(this,1) onmouseout=eventMouseHover(this,0) style=cursor:pointer><td style=width:18px><div class=' + icon + '></div></td><td class=g1>&nbsp;</td><td class=style10>' + printTime(time) + ' - ' + msg + '</td><td class=g2>&nbsp;</td></tr><tr style=height:2px></tr>';
                 }
             }
             if (dateHeader != null) x += '</table>';
@@ -7003,17 +7038,21 @@
                 }
                 if (sessions == 1) { lastAccess += '1&nbsp;session'; } else { lastAccess += sessions + '&nbsp;sessions'; }
             } else {
-                if (user.login) { lastAccess += '<span title="Last login: ' + new Date(user.login * 1000).toLocaleString() + '">' + new Date(user.login * 1000).toLocaleDateString() + '</span>'; }
+                if (user.login) { lastAccess += '<span title="Last login: ' + printDateTime(new Date(user.login * 1000)) + '">' + printDate(new Date(user.login * 1000)) + '</span>'; }
             }
             if (self) { permissions += "<a style=cursor:pointer onclick=showUserAdminDialog(event,\"" + encodeURIComponent(user._id) + "\")>"; }
             if ((user.siteadmin != null) && ((user.siteadmin & 32) != 0) && (user.siteadmin != 0xFFFFFFFF)) { permissions += "Locked,&nbsp;"; }
             permissions += "<span title='Server Permissions'>";
-            if ((user.siteadmin == null) || (user.siteadmin == 0) || ((user.siteadmin & (0xFFFFFFFF - 224)) == 0)) {
+
+            var urights = user.siteadmin & (0xFFFFFFFF - 224);
+            if ((user.siteadmin == null) || (urights == 0)) {
                 permissions += "User";
-            } else if (user.siteadmin == 8) {
+            } else if (urights == 8) {
                 permissions += "User + Files";
             } else if (user.siteadmin == 0xFFFFFFFF) {
                 permissions += "Administrator";
+            } else if ((urights & 2) != 0) {
+                permissions += "Manager";
             } else {
                 permissions += "Partial";
             }
@@ -7208,14 +7247,14 @@
             if (xxdialogMode) return;
             haltEvent(e);
             userid = decodeURIComponent(userid);
-            var x = '<div>';
+            var x = '<div><div id=d2AdminPermissions>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_fileaccess>Server Files, <input type=number onchange=showUserAdminDialogValidate() maxlength=10 id=ua_fileaccessquota>k max, blank for default<br><hr/>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_fulladmin>Full Administrator<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverbackup>Server Backup<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverrestore>Server Restore<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverupdate>Server Updates<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_manageusers>Manage Users<br>';
-            x += '<hr/><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_lockedaccount>Lock Account<br>';
+            x += '<hr/></div><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_lockedaccount>Lock Account<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_nonewgroups>No New Device Groups<br>';
             x += '<input type=checkbox onchange=showUserAdminDialogValidate() id=ua_nomeshcmd>No Tools (MeshCmd/Router)<br>';
             x += '</div>';
@@ -7239,6 +7278,7 @@
             QE('ua_fileaccess', userinfo.siteadmin == 0xFFFFFFFF);
             QE('ua_fileaccessquota', userinfo.siteadmin == 0xFFFFFFFF);
             QE('ua_serverupdate', userinfo.siteadmin == 0xFFFFFFFF);
+            QV('d2AdminPermissions', userinfo.siteadmin == 0xFFFFFFFF)
             QE('ua_lockedaccount', (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
             QE('ua_nonewgroups', (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
             QE('ua_nomeshcmd', (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
@@ -7316,10 +7356,10 @@
             }
             x += addDeviceAttribute('Server Rights', premsg + "<a style=cursor:pointer onclick=showUserAdminDialog(event,\"" + userid + "\")>" + msg.join(', ') + "</a>");
             if (user.quota) x += addDeviceAttribute('Server Quota', EscapeHtml(parseInt(user.quota) / 1024) + ' k');
-            x += addDeviceAttribute('Creation', new Date(user.creation * 1000).toLocaleString());
-            if (user.login) x += addDeviceAttribute('Last Login', new Date(user.login * 1000).toLocaleString());
+            x += addDeviceAttribute('Creation', printDateTime(new Date(user.creation * 1000)));
+            if (user.login) x += addDeviceAttribute('Last Login', printDateTime(new Date(user.login * 1000)));
             if (user.passchange == -1) { x += addDeviceAttribute('Password', 'Will be changed on next login.'); }
-            else if (user.passchange) { x += addDeviceAttribute('Password', 'Last changed: ' + new Date(user.passchange * 1000).toLocaleString()); }
+            else if (user.passchange) { x += addDeviceAttribute('Password', 'Last changed: ' + printDateTime(new Date(user.passchange * 1000))); }
 
             // Device Groups
             var linkCount = 0, linkCountStr = '<i>None<i>';
@@ -7496,12 +7536,12 @@
                         var te = Math.min(Math.min(end, block[1]), now);
                         var width = Math.round((te - ts) / 112794);
                         if (width > 0) {
-                            var title = powerStateStrings2[block[2]] + ' from ' + new Date(ts).toLocaleTimeString() + ' to ' + new Date(te).toLocaleTimeString() + '.';
+                            var title = powerStateStrings2[block[2]] + ' from ' + printTime(new Date(ts)) + ' to ' + printTime(new Date(te)) + '.';
                             datavalue += '<div title="' + title + '" style=display:table-cell;width:' + width + 'px;background-color:' + powerColor(block[2]) + ';height:16px></div>';
                         }
                     }
                 }
-                x += '<tr style=' + (((count % 2) == 0)?'background-color:#DDD':'') + '><td><div>&nbsp;' + date.toLocaleDateString() + '<div></div></div></td><td><div>' + datavalue + '</div></td></tr>';
+                x += '<tr style=' + (((count % 2) == 0)?'background-color:#DDD':'') + '><td><div>&nbsp;' + printDate(date) + '<div></div></div></td><td><div>' + datavalue + '</div></td></tr>';
                 ++count;
                 date = new Date(date.getTime() - (1000 * 60 * 60 * 24)); // Substract one day
             }
@@ -7518,10 +7558,10 @@
             for (var i in currentUserEvents) {
                 var event = currentUserEvents[i];
                 var time = new Date(event.time);
-                if (time.toLocaleDateString() != dateHeader) {
+                if (printDate(time) != dateHeader) {
                     if (dateHeader != null) x += '</table>';
-                    x += '<table style=width:100% cellpadding=0 cellspacing=0><tr><td class=DevSt>' + time.toLocaleDateString() + '</td></tr>';
-                    dateHeader = time.toLocaleDateString();
+                    dateHeader = printDate(time);
+                    x += '<table style=width:100% cellpadding=0 cellspacing=0><tr><td class=DevSt>' + dateHeader + '</td></tr>';
                 }
                 var icon = 'si3';
                 if (event.etype == 'user') icon = 'm2';
@@ -7532,7 +7572,7 @@
                 x += '<tr><td><div class=bar18 style=height:18px;width:100%;font-size:medium>';
                 x += '<div style=float:left;height:18px;width:18px;background-color:white><div class=' + icon + ' style=width:16px;margin-top:1px;margin-left:2px;height:16px></div></div>';
                 x += '<div class=g1 style=height:18px;float:left></div><div class=g2 style=height:18px;float:right></div>';
-                x += '<div style=font-size:14px><span style=width:300px>' + time.toLocaleTimeString() + ' - ' + msg + '</span></div></div></td></tr>';
+                x += '<div style=font-size:14px><span style=width:300px>' + printTime(time) + ' - ' + msg + '</span></div></div></td></tr>';
             }
             if (dateHeader != null) x += '</table>';
             if (x == '') x = "<br><i>No Events Found</i><br><br>";
@@ -7672,7 +7712,7 @@
                         if (node != null) { icon = node.icon; t = '<b>' + node.name + '</b>: ' }
                     }
 
-                    r += '<div title="Occured at ' + d.toLocaleString() + '" id="notifyx' + n.id + '" class=notification style="cursor:pointer;border-top:1px solid ' + ((r == '') ? 'transparent' : 'orange') + '">';
+                    r += '<div title="Occured at ' + printDateTime(d) + '" id="notifyx' + n.id + '" class=notification style="cursor:pointer;border-top:1px solid ' + ((r == '') ? 'transparent' : 'orange') + '">';
                     if (icon) { r += '<div class=j' + icon + ' onclick="notificationSelected(' + n.id + ')" style=margin:5px;float:left></div>'; }
                     r += '<div onclick="notificationDelete(' + n.id + ')" class=unselectable title="Clear this notification" style=margin:5px;float:right;color:orange><b>X</b></div><div onclick="notificationSelected(' + n.id + ')" style=margin:5px>' + t + n.text + '</div></div>';
                 }
@@ -8135,7 +8175,9 @@
         function u2fSupported() { return (window.u2f && ((navigator.userAgent.indexOf('Chrome/') > 0) || (navigator.userAgent.indexOf('Firefox/') > 0) || (navigator.userAgent.indexOf('Opera/') > 0) || (navigator.userAgent.indexOf('Safari/') > 0))); }
         function findOne(arr1, arr2) { if ((arr1 == null) || (arr2 == null)) return false; return arr2.some(function (v) { return arr1.indexOf(v) >= 0; }); };
         function copyTextToClip(txt) { function selectElementText(e) { if (document.selection) { var range = document.body.createTextRange(); range.moveToElementText(e); range.select(); } else if (window.getSelection) { var range = document.createRange(); range.selectNode(e); window.getSelection().removeAllRanges(); window.getSelection().addRange(range); } } var e = document.createElement('DIV'); e.textContent = txt; document.body.appendChild(e); selectElementText(e); document.execCommand('copy'); e.remove(); }
-
+        function printDate(d) { return d.toLocaleDateString(args.locale); }
+        function printTime(d) { return d.toLocaleTimeString(args.locale); }
+        function printDateTime(d) { return d.toLocaleString(args.locale); }
     </script>
 </body>
 </html>

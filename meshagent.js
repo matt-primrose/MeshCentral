@@ -29,7 +29,8 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
     obj.remoteaddr = (req.ip.startsWith('::ffff:')) ? (req.ip.substring(7)) : req.ip;
     obj.remoteaddrport = obj.remoteaddr + ':' + ws._socket.remotePort;
     obj.nonce = parent.crypto.randomBytes(48).toString('binary');
-    ws._socket.setKeepAlive(true, 240000); // Set TCP keep alive, 4 minutes
+    //ws._socket.setKeepAlive(true, 240000); // Set TCP keep alive, 4 minutes
+    if (args.agentidletimeout != 0) { ws._socket.setTimeout(args.agentidletimeout, function () { obj.close(1); }); } // Inactivity timeout of 2:30 minutes, by default agent will WebSocket ping every 2 minutes and server will pong back.
     //obj.nodeid = null;
     //obj.meshid = null;
     //obj.dbNodeKey = null;
@@ -140,16 +141,18 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                 }
 
                 // We need to check if the core is current. Figure out what core we need.
-                var corename;
-                if (obj.agentCoreCheck == 1001) {
-                    // If the user asked, use the recovery core.
-                    corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].rcore;
-                } else if (obj.agentInfo.capabilities & 0x40) {
-                    // If this is a recovery agent, use the agent recovery core.
-                    corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].arcore;
-                } else {
-                    // This is the normal core for this agent type.
-                    corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].core;
+                var corename = null;
+                if (parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId] != null) {
+                    if (obj.agentCoreCheck == 1001) {
+                        // If the user asked, use the recovery core.
+                        corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].rcore;
+                    } else if (obj.agentInfo.capabilities & 0x40) {
+                        // If this is a recovery agent, use the agent recovery core.
+                        corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].arcore;
+                    } else {
+                        // This is the normal core for this agent type.
+                        corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].core;
+                    }
                 }
 
                 // If we have a core, use it.
@@ -795,8 +798,13 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
 
         // Check if we need to make an native update check
         obj.agentExeInfo = parent.parent.meshAgentBinaries[obj.agentInfo.agentId];
-        const corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].core;
-        if (corename == null) { obj.send(common.ShortToStr(10) + common.ShortToStr(0)); } // MeshCommand_CoreModule, ask mesh agent to clear the core
+        var corename = null;
+        if (parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId] != null) {
+            corename = parent.parent.meshAgentsArchitectureNumbers[obj.agentInfo.agentId].core;
+        } else {
+            // MeshCommand_CoreModule, ask mesh agent to clear the core
+            obj.send(common.ShortToStr(10) + common.ShortToStr(0));
+        }
 
         if ((obj.agentExeInfo != null) && (obj.agentExeInfo.update == true)) {
             // Ask the agent for it's executable binary hash
@@ -813,24 +821,28 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
 
     // Take a basic Intel AMT policy and add all server information to it, making it ready to send to this agent.
     function completeIntelAmtPolicy(amtPolicy) {
+        var r = amtPolicy;
         if (amtPolicy == null) return null;
         if (amtPolicy.type == 2) {
-            // Add server root certificate
+            // CCM - Add server root certificate
             if (parent.parent.certificates.rootex == null) { parent.parent.certificates.rootex = parent.parent.certificates.root.cert.split('-----BEGIN CERTIFICATE-----').join('').split('-----END CERTIFICATE-----').join('').split('\r').join('').split('\n').join(''); }
-            amtPolicy.rootcert = parent.parent.certificates.rootex;
+            r.rootcert = parent.parent.certificates.rootex;
+        } else if ((amtPolicy.type == 3) && (domain.amtacmactivation.dnsmatch)) {
+            // ACM - In this mode, don't send much to Intel AMT. Just indicate ACM policy and let the agent try activation when possible.
+            r = { type: 3, dnsmatch: domain.amtacmactivation.dnsmatch };
         }
-        if ((amtPolicy.cirasetup == 2) && (parent.parent.mpsserver != null) && (parent.parent.certificates.AmtMpsName != null) && (args.lanonly != true) && (args.mpsport != 0)) {
+        if (((amtPolicy.cirasetup == 2) || (amtPolicy.cirasetup == 3)) && (parent.parent.mpsserver != null) && (parent.parent.certificates.AmtMpsName != null) && (args.lanonly != true) && (args.mpsport != 0)) {
             // Add server CIRA settings
-            amtPolicy.ciraserver = {
+            r.ciraserver = {
                 name: parent.parent.certificates.AmtMpsName,
                 port: (typeof args.mpsaliasport == 'number' ? args.mpsaliasport : args.mpsport),
                 user: obj.meshid.replace(/\@/g, 'X').replace(/\$/g, 'X').substring(0, 16),
                 pass: args.mpspass ? args.mpspass : 'A@xew9rt', // If the MPS password is not set, just use anything. TODO: Use the password as an agent identifier?
                 home: ['sdlwerulis3wpj95dfj'] // Use a random FQDN to not have any home network.
             };
-            if (Array.isArray(args.ciralocalfqdn)) { amtPolicy.ciraserver.home = args.ciralocalfqdn; }
+            if (Array.isArray(args.ciralocalfqdn)) { r.ciraserver.home = args.ciralocalfqdn; }
         }
-        return amtPolicy;
+        return r;
     }
 
     // Send Intel AMT policy
@@ -1194,6 +1206,13 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                                 obj.send(JSON.stringify({ action: 'getScript', type: 2, script: script.toString() }));
                             });
                         }
+                        break;
+                    }
+                case 'acmactivate':
+                    {
+                        // Agent is asking the server to sign an Intel AMT ACM activation request
+                        //console.log(command);
+                        // TODO
                         break;
                     }
                 case 'diagnostic':

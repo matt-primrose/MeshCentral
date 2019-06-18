@@ -28,6 +28,11 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
     const MESHRIGHT_SERVERFILES = 32;
     const MESHRIGHT_WAKEDEVICE = 64;
     const MESHRIGHT_SETNOTES = 128;
+    const MESHRIGHT_REMOTEVIEWONLY = 256;
+    const MESHRIGHT_NOTERMINAL = 512;
+    const MESHRIGHT_NOFILES = 1024;
+    const MESHRIGHT_NOAMT = 2048;
+    const MESHRIGHT_DESKLIMITEDINPUT = 4096;
 
     // Site rights
     const SITERIGHT_SERVERBACKUP = 1;
@@ -36,6 +41,8 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
     const SITERIGHT_FILEACCESS = 8;
     const SITERIGHT_SERVERUPDATE = 16;
     const SITERIGHT_LOCKED = 32;
+    const SITERIGHT_NONEWGROUPS = 64;
+    const SITERIGHT_NOMESHCMD = 128;
 
     var obj = {};
     obj.user = user;
@@ -261,7 +268,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 if (agentstats.agentMaxSessionHoldCount > 0) { errorCountersCount++; errorCounters["Max Sessions Reached"] = agentstats.agentMaxSessionHoldCount; }
                 if ((agentstats.invalidDomainMeshCount + agentstats.invalidDomainMesh2Count) > 0) { errorCountersCount++; errorCounters["Unknown Device Group"] = (agentstats.invalidDomainMeshCount + agentstats.invalidDomainMesh2Count); }
                 if ((agentstats.invalidMeshTypeCount + agentstats.invalidMeshType2Count) > 0) { errorCountersCount++; errorCounters["Invalid Device Group Type"] = (agentstats.invalidMeshTypeCount + agentstats.invalidMeshType2Count); }
-                if (agentstats.duplicateAgentCount > 0) { errorCountersCount++; errorCounters["Duplicate Agent"] = agentstats.duplicateAgentCount; }
+                //if (agentstats.duplicateAgentCount > 0) { errorCountersCount++; errorCounters["Duplicate Agent"] = agentstats.duplicateAgentCount; }
 
                 // Send out the stats
                 stats.values = { "Server State": serverStats }
@@ -283,7 +290,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
             var httpport = ((args.aliasport != null) ? args.aliasport : args.port);
 
             // Build server information object
-            var serverinfo = { name: domain.dns ? domain.dns : parent.certificates.CommonName, mpsname: parent.certificates.AmtMpsName, mpsport: mpsport, mpspass: args.mpspass, port: httpport, emailcheck: ((parent.parent.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap')), domainauth: ((domain.auth == 'sspi') || (domain.auth == 'ldap')) };
+            var serverinfo = { name: domain.dns ? domain.dns : parent.certificates.CommonName, mpsname: parent.certificates.AmtMpsName, mpsport: mpsport, mpspass: args.mpspass, port: httpport, emailcheck: ((parent.parent.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap') && (args.lanonly != true) && (parent.certificates.CommonName != null) && (parent.certificates.CommonName.indexOf('.') != -1)), domainauth: ((domain.auth == 'sspi') || (domain.auth == 'ldap')) };
             if (args.notls == true) { serverinfo.https = false; } else { serverinfo.https = true; serverinfo.redirport = args.redirport; }
             if (typeof domain.userconsentflags == 'number') { serverinfo.consent = domain.userconsentflags; }
             if ((typeof domain.usersessionidletimeout == 'number') && (domain.usersessionidletimeout > 0)) { serverinfo.timeout = (domain.usersessionidletimeout * 60 * 1000); }
@@ -546,7 +553,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         case 'help': {
                             r =  'Available commands: help, info, versions, args, resetserver, showconfig, usersessions, tasklimiter, setmaxtasks, cores,\r\n'
                             r += 'migrationagents, agentstats, webstats, mpsstats, swarmstats, acceleratorsstats, updatecheck, serverupdate, nodeconfig,\r\n';
-                            r += 'heapdump, relays, autobackup, dupagents.';
+                            r += 'heapdump, relays, autobackup, backupconfig, dupagents.';
                             break;
                         }
                         case 'dupagents': {
@@ -735,6 +742,10 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         case 'autobackup': {
                             var backupResult = parent.db.performBackup();
                             if (backupResult == 0) { r = 'Starting auto-backup...'; } else { r = 'Backup alreay in progress.'; }
+                            break;
+                        }
+                        case 'backupconfig': {
+                            r = parent.db.getBackupConfig();
                             break;
                         }
                         default: { // This is an unknown command, return an error message
@@ -1384,20 +1395,33 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                     // We only create Agent-less Intel AMT mesh (Type1), or Agent mesh (Type2)
                     if ((command.meshtype == 1) || (command.meshtype == 2)) {
                         parent.crypto.randomBytes(48, function (err, buf) {
+                            // Create new device group identifier
                             meshid = 'mesh/' + domain.id + '/' + buf.toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
+
+                            // Create the new device group
                             var links = {};
                             links[user._id] = { name: user.name, rights: 0xFFFFFFFF };
                             mesh = { type: 'mesh', _id: meshid, name: command.meshname, mtype: command.meshtype, desc: command.desc, domain: domain.id, links: links };
                             db.Set(common.escapeLinksFieldName(mesh));
                             parent.meshes[meshid] = mesh;
                             parent.parent.AddEventDispatch([meshid], ws);
+
+                            // Change the user to make him administration of the new device group
                             if (user.links == null) user.links = {};
                             user.links[meshid] = { rights: 0xFFFFFFFF };
                             user.subscriptions = parent.subscribe(user._id, ws);
                             db.SetUser(user);
+
+                            // Event the user change
+                            var targets = ['*', 'server-users', user._id];
+                            if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+                            var event = { etype: 'user', username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', domain: domain.id, nolog: 1 };
+                            if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+                            parent.parent.DispatchEvent(targets, obj, event);
+
+                            // Event the device group creation
                             var event = { etype: 'mesh', username: user.name, meshid: meshid, name: command.meshname, mtype: command.meshtype, desc: command.desc, action: 'createmesh', links: links, msg: 'Mesh created: ' + command.meshname, domain: domain.id };
-                            if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the mesh. Another event will come.
-                            parent.parent.DispatchEvent(['*', meshid, user._id], obj, event);
+                            parent.parent.DispatchEvent(['*', meshid, user._id], obj, event); // Even if DB change stream is active, this event must be acted upon.
                         });
                     }
                     break;
@@ -1416,8 +1440,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
 
                         // Fire the removal event first, because after this, the event will not route
                         var event = { etype: 'mesh', username: user.name, meshid: command.meshid, name: command.meshname, action: 'deletemesh', msg: 'Mesh deleted: ' + command.meshname, domain: domain.id };
-                        if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to remove the mesh. Another event will come.
-                        parent.parent.DispatchEvent(['*', command.meshid], obj, event);
+                        parent.parent.DispatchEvent(['*', command.meshid], obj, event); // Even if DB change stream is active, this event need to be acted on.
 
                         // Remove all user links to this mesh
                         for (i in meshes) {
@@ -1568,10 +1591,13 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                     // Change a mesh Intel AMT policy
                     if (common.validateString(command.meshid, 1, 1024) == false) break; // Check the meshid
                     if (common.validateObject(command.amtpolicy) == false) break; // Check the amtpolicy
-                    if (common.validateInt(command.amtpolicy.type, 0, 2) == false) break; // Check the amtpolicy.type
+                    if (common.validateInt(command.amtpolicy.type, 0, 3) == false) break; // Check the amtpolicy.type
                     if (command.amtpolicy.type === 2) {
                         if (common.validateString(command.amtpolicy.password, 0, 32) == false) break; // Check the amtpolicy.password
                         if (common.validateInt(command.amtpolicy.badpass, 0, 1) == false) break; // Check the amtpolicy.badpass
+                        if (common.validateInt(command.amtpolicy.cirasetup, 0, 2) == false) break; // Check the amtpolicy.cirasetup
+                    } else if (command.amtpolicy.type === 3) {
+                        if (common.validateString(command.amtpolicy.password, 0, 32) == false) break; // Check the amtpolicy.password
                         if (common.validateInt(command.amtpolicy.cirasetup, 0, 2) == false) break; // Check the amtpolicy.cirasetup
                     }
                     mesh = parent.meshes[command.meshid];
@@ -1587,6 +1613,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         change = 'Intel AMT policy change';
                         var amtpolicy = { type: command.amtpolicy.type };
                         if (command.amtpolicy.type === 2) { amtpolicy = { type: command.amtpolicy.type, password: command.amtpolicy.password, badpass: command.amtpolicy.badpass, cirasetup: command.amtpolicy.cirasetup }; }
+                        else if (command.amtpolicy.type === 3) { amtpolicy = { type: command.amtpolicy.type, password: command.amtpolicy.password, cirasetup: command.amtpolicy.cirasetup }; }
                         mesh.amt = amtpolicy;
                         db.Set(common.escapeLinksFieldName(mesh));
                         var event = { etype: 'mesh', username: user.name, meshid: mesh._id, amt: amtpolicy, action: 'meshchange', links: mesh.links, msg: change, domain: domain.id };
@@ -2092,7 +2119,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         //if (mesh.links[user._id] == null || ((mesh.links[user._id].rights & 4) == 0)) return;
 
                         // Perform email invitation
-                        parent.parent.mailserver.sendAgentInviteMail(domain, user.name, command.email, command.meshid, command.name, command.os, command.msg, command.flags);
+                        parent.parent.mailserver.sendAgentInviteMail(domain, user.name, command.email, command.meshid, command.name, command.os, command.msg, command.flags, command.expire);
                     }
                     break;
                 }
@@ -2505,7 +2532,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 if (common.validateInt(command.flags, 0, 256) == false) break; // Check the flags
                 var mesh = parent.meshes[command.meshid];
                 if (mesh == null) break;
-                const inviteCookie = parent.parent.encodeCookie({ a: 4, mid: command.meshid, f: command.flags, expire: command.expire * 60 }, parent.parent.loginCookieEncryptionKey);
+                const inviteCookie = parent.parent.encodeCookie({ a: 4, mid: command.meshid, f: command.flags, expire: command.expire * 60 }, parent.parent.invitationLinkEncryptionKey);
                 if (inviteCookie == null) break;
                 ws.send(JSON.stringify({ action: 'createInviteLink', meshid: command.meshid, expire: command.expire, cookie: inviteCookie }));
                 break;

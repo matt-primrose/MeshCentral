@@ -24,8 +24,10 @@
     <Compile Include="agents\meshcmd.min.js" />
     <Compile Include="agents\meshcore.js" />
     <Compile Include="agents\meshcore.min.js" />
+    <Compile Include="agents\modules_meshcmd\amt-ider.js" />
     <Compile Include="agents\modules_meshcmd\amt-lme.js" />
     <Compile Include="agents\modules_meshcmd\amt-mei.js" />
+    <Compile Include="agents\modules_meshcmd\amt-redir-duk.js" />
     <Compile Include="agents\modules_meshcmd\amt-scanner.js" />
     <Compile Include="agents\modules_meshcmd\amt-script.js" />
     <Compile Include="agents\modules_meshcmd\amt-wsman-duk.js" />
@@ -128,7 +130,6 @@
     <Compile Include="public\scripts\amt-wsman-0.2.0.js" />
     <Compile Include="public\scripts\amt-wsman-ws-0.2.0.js" />
     <Compile Include="public\scripts\common-0.0.1.js" />
-    <Compile Include="public\scripts\filesaver.1.1.20151003.js" />
     <Compile Include="public\scripts\meshcentral.js" />
     <Compile Include="redirserver.js" />
     <Compile Include="webauthn.js" />
@@ -138,6 +139,8 @@
     <Content Include="agents\MeshAgentOSXPackager.zip" />
     <Content Include="agents\meshagent_arm" />
     <Content Include="agents\meshagent_arm-linaro" />
+    <Content Include="agents\meshagent_arm64" />
+    <Content Include="agents\meshagent_armhf" />
     <Content Include="agents\meshagent_osx-x86-64" />
     <Content Include="agents\meshagent_pogo" />
     <Content Include="agents\meshagent_poky" />
