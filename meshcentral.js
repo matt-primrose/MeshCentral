@@ -198,7 +198,11 @@ function CreateMeshCentralServer(config, args) {
         xprocess.stderr.on('data', function (data) {
             if (data.startsWith('le.challenges[tls-sni-01].loopback')) { return; } // Ignore this error output from GreenLock
             if (data[data.length - 1] == '\n') { data = data.substring(0, data.length - 1); }
-            try { obj.fs.appendFileSync(obj.getConfigFilePath('mesherrors.txt'), '-------- ' + new Date().toLocaleString() + ' ---- ' + obj.currentVer + ' --------\r\n\r\n' + data + '\r\n\r\n\r\n'); } catch (ex) { console.log('ERROR: Unable to write to mesherrors.txt.'); }
+            try {
+                var errlogpath = null;
+                if (typeof obj.args.mesherrorlogpath == 'string') { errlogpath = obj.path.join(obj.args.mesherrorlogpath, 'mesherrors.txt'); } else { errlogpath = obj.getConfigFilePath('mesherrors.txt'); }
+                obj.fs.appendFileSync(obj.getConfigFilePath('mesherrors.txt'), '-------- ' + new Date().toLocaleString() + ' ---- ' + obj.currentVer + ' --------\r\n\r\n' + data + '\r\n\r\n\r\n');
+            } catch (ex) { console.log('ERROR: Unable to write to mesherrors.txt.'); }
         });
         xprocess.on('close', function (code) { if ((code != 0) && (code != 123)) { /* console.log("Exited with code " + code); */ } });
     };
@@ -575,7 +579,7 @@ function CreateMeshCentralServer(config, args) {
                 var newAccRights = 0;
                 for (var j in obj.config.domains[i].newaccountsrights) {
                     var r = obj.config.domains[i].newaccountsrights[j].toLowerCase();
-                    if (r == 'fulladmin') { newAccRights = 0xFFFFFFFF; }
+                    if (r == 'fulladmin') { newAccRights = 4294967295; } // 0xFFFFFFFF
                     if (r == 'serverbackup') { newAccRights |= 1; }
                     if (r == 'manageusers') { newAccRights |= 2; }
                     if (r == 'serverrestore') { newAccRights |= 4; }
@@ -614,7 +618,7 @@ function CreateMeshCentralServer(config, args) {
             else { console.log('Invalid administrator name.'); process.exit(); return; }
             obj.db.Get(adminname, function (err, user) {
                 if (user.length != 1) { console.log('Invalid user name.'); process.exit(); return; }
-                user[0].siteadmin = 0xFFFFFFFF;
+                user[0].siteadmin = 4294967295; // 0xFFFFFFFF
                 obj.db.Set(user[0], function () {
                     if (user[0].domain == '') { console.log('User ' + user[0].name + ' set to site administrator.'); } else { console.log('User ' + user[0].name + ' of domain ' + user[0].domain + ' set to site administrator.'); }
                     process.exit();
@@ -716,28 +720,7 @@ function CreateMeshCentralServer(config, args) {
         // Load any domain web certificates
         for (i in obj.config.domains) {
             // Load any Intel AMT ACM activation certificates
-            if (obj.config.domains[i].amtacmactivation && obj.config.domains[i].amtacmactivation.certs) {
-                var badAcmConfigs = [], dnsmatch = [], amtAcmCertCount = 0;
-                for (var j in obj.config.domains[i].amtacmactivation.certs) {
-                    var acmconfig = obj.config.domains[i].amtacmactivation.certs[j];
-                    if (acmconfig.dnsmatch == null) { acmconfig.dnsmatch = [ j ]; }
-                    if (typeof acmconfig.dnsmatch == 'string') { acmconfig.dnsmatch = [ acmconfig.dnsmatch ]; }
-                    if (typeof acmconfig.dnsmatch.length == 0) { badAcmConfigs.push(j); continue; }
-                    if (typeof acmconfig.cert != 'string') { badAcmConfigs.push(j); continue; }
-                    var r = null;
-                    try { r = obj.certificateOperations.loadPfxCertificate(obj.path.join(obj.datapath, acmconfig.cert), acmconfig.certpass); } catch (ex) { console.log(ex); }
-                    if ((r == null) || (r.certs == null) || (r.keys == null) || (r.certs.length < 2) || (r.keys.length == 0)) { badAcmConfigs.push(j); continue; }
-                    delete acmconfig.cert;
-                    delete acmconfig.certpass;
-                    acmconfig.certs = r.certs;
-                    acmconfig.keys = r.keys;
-                    for (var k in acmconfig.dnsmatch) { if (dnsmatch.indexOf(acmconfig.dnsmatch[k]) == -1) { dnsmatch.push(acmconfig.dnsmatch[k]); } }
-                    amtAcmCertCount++;
-                }
-                // Remove all bad configurations
-                for (var j in badAcmConfigs) { console.log('WARNING: Incorrect Intel AMT ACM configuration "' + i + (i == '' ? '' : '/') + badAcmConfigs[j] + '".'); delete obj.config.domains[i].amtacmactivationcerts[j]; }
-                if (amtAcmCertCount == 0) { delete obj.config.domains[i].amtacmactivation; } else { obj.config.domains[i].amtacmactivation.dnsmatch = dnsmatch; }
-            }
+            obj.certificateOperations.loadIntelAmtAcmCerts(obj.config.domains[i].amtacmactivation);
 
             if (obj.config.domains[i].certurl != null) {
                 // Fix the URL and add 'https://' if needed
@@ -749,10 +732,7 @@ function CreateMeshCentralServer(config, args) {
                     if (cert != null) {
                         // Hash the entire cert
                         var hash = obj.crypto.createHash('sha384').update(Buffer.from(cert, 'binary')).digest('hex');
-                        if (xdomain.certhash != hash) {
-                            xdomain.certkeyhash = hash;
-                            xdomain.certhash = hash;
-                        }
+                        if (xdomain.certhash != hash) { xdomain.certkeyhash = hash; xdomain.certhash = hash; }
 
                         try {
                             // Decode a RSA certificate and hash the public key, if this is not RSA, skip this.
@@ -1473,6 +1453,7 @@ function CreateMeshCentralServer(config, args) {
         24: { id: 24, localname: 'meshagent_arm-linaro', rname: 'meshagent', desc: 'Linux ARM Linaro', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
         25: { id: 25, localname: 'meshagent_armhf', rname: 'meshagent', desc: 'Linux ARM - HardFloat', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // "armv6l" and "armv7l"
         26: { id: 26, localname: 'meshagent_arm64', rname: 'meshagent', desc: 'Linux ARMv8-64', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // "aarch64"
+        27: { id: 27, localname: 'meshagent_armhf2', rname: 'meshagent', desc: 'Linux ARM - HardFloat', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // Raspbian 7 2015-02-02 for old Raspberry Pi.
         30: { id: 30, localname: 'meshagent_freebsd64', rname: 'meshagent', desc: 'FreeBSD x86-64', update: true, amt: false, platform: 'freebsd', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // FreeBSD x64
         10003: { id: 3, localname: 'MeshService.exe', rname: 'meshagent.exe', desc: 'Windows x86-32 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' }, // Unsigned version of the Windows MeshAgent x86
         10004: { id: 4, localname: 'MeshService64.exe', rname: 'meshagent.exe', desc: 'Windows x86-64 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' } // Unsigned version of the Windows MeshAgent x64

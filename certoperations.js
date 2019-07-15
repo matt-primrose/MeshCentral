@@ -26,17 +26,168 @@ module.exports.CertificateOperations = function (parent) {
     obj.dirExists = function (filePath) { try { return obj.fs.statSync(filePath).isDirectory(); } catch (err) { return false; } };
     obj.getFilesizeInBytes = function (filename) { try { return obj.fs.statSync(filename).size; } catch (err) { return -1; } };
 
+    const TopLevelDomainExtendedSupport = { 'net': 2, 'com': 2, 'arpa': 3, 'org': 2, 'gov': 2, 'edu': 2, 'de': 2, 'fr': 3, 'cn': 3, 'nl': 3, 'br': 3, 'mx': 3, 'uk': 3, 'pl': 3, 'tw': 3, 'ca': 3, 'fi': 3, 'be': 3, 'ru': 3, 'se': 3, 'ch': 2, 'dk': 2, 'ar': 3, 'es': 3, 'no': 3, 'at': 3, 'in': 3, 'tr': 3, 'cz': 2, 'ro': 3, 'hu': 3, 'nz': 3, 'pt': 3, 'il': 3, 'gr': 3, 'co': 3, 'ie': 3, 'za': 3, 'th': 3, 'sg': 3, 'hk': 3, 'cl': 2, 'lt': 3, 'id': 3, 'hr': 3, 'ee': 3, 'bg': 3, 'ua': 2 };
+
+    // Sign a Intel AMT ACM activation request
+    obj.signAcmRequest = function (domain, request, user, pass, ipport, nodeid, meshid, computerName, agentId) {
+        if ((domain == null) || (domain.amtacmactivation == null) || (domain.amtacmactivation.certs == null) || (request == null) || (request.nonce == null) || (request.realm == null) || (request.fqdn == null) || (request.hash == null)) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid arguments' };
+        if (parent.common.validateString(request.nonce, 16, 256) == false) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid nonce argument' };
+        if (parent.common.validateString(request.realm, 16, 256) == false) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid realm argument' };
+        if (parent.common.validateString(request.fqdn, 4, 256) == false) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid FQDN argument' };
+        if (parent.common.validateString(request.hash, 16, 256) == false) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid hash argument' };
+        if (parent.common.validateString(request.uuid, 36, 36) == false) return { 'action': 'acmactivate', 'error': 1, 'errorText': 'Invalid UUID argument' };
+
+        // Look for the signing certificate
+        var signkey = null, certChain = null, hashAlgo = null, certIndex = null;
+        for (var i in domain.amtacmactivation.certs) {
+            const certEntry = domain.amtacmactivation.certs[i];
+            if ((certEntry.sha256 == request.hash) && ((certEntry.cn == '*') || (certEntry.cn == request.fqdn))) { hashAlgo = 'sha256'; signkey = certEntry.key; certChain = certEntry.certs; certIndex = i; break; }
+            if ((certEntry.sha1 == request.hash) && ((certEntry.cn == '*') || (certEntry.cn == request.fqdn))) { hashAlgo = 'sha1'; signkey = certEntry.key; certChain = certEntry.certs; certIndex = i; break; }
+        }
+        if (signkey == null) return { 'action': 'acmactivate', 'error': 2, 'errorText': 'No signing certificate found' }; // Did not find a match.
+
+        // If the matching certificate is a root cert, issue a leaf cert that matches the fqdn
+        if (domain.amtacmactivation.certs[certIndex].cn == '*') return { 'action': 'acmactivate', 'error': 3, 'errorText': 'Unsupported activation' }; // TODO: Add support for this mode
+
+        // Setup both nonces, ready to be signed
+        const mcNonce = Buffer.from(obj.crypto.randomBytes(20), 'binary');
+        const fwNonce = Buffer.from(request.nonce, 'base64');
+
+        // Sign the request
+        var signature = null;
+        try {
+            var signer = obj.crypto.createSign(hashAlgo);
+            signer.update(Buffer.concat([fwNonce, mcNonce]));
+            signature = signer.sign(signkey, 'base64');
+        } catch (ex) { return { 'action': 'acmactivate', 'error': 4, 'errorText': 'Unable to perform signature' }; }
+
+        // Log the activation request, logging is a required step for activation.
+        if (obj.logAmtActivation(domain, { time: new Date(), action: 'acmactivate', domain: domain.id, amtUuid: request.uuid, certHash: request.hash, hashType: hashAlgo, amtRealm: request.realm, amtFqdn: request.fqdn, user: user, password: pass, ipport: ipport, nodeid: nodeid, meshid: meshid, computerName: computerName, agentId: agentId, tag: request.tag, name: request.name }) == false) return { 'action': 'acmactivate', 'error': 5, 'errorText': 'Unable to log operation' };
+
+        // Return the signature with the computed account password hash
+        return { 'action': 'acmactivate', 'signature': signature, 'password': obj.crypto.createHash('md5').update(user + ':' + request.realm + ':' + pass).digest('hex'), 'nonce': mcNonce.toString('base64'), 'certs': certChain };
+    }
+
+    // Log the Intel AMT activation operation
+    obj.logAmtActivation = function (domain, x) {
+        if ((domain.amtacmactivation == null) || (domain.amtacmactivation.log == null) || (typeof domain.amtacmactivation.log != 'string') || (x == null)) return true;
+        var logpath = null;
+        if ((domain.amtacmactivation.log.length >= 2) && ((domain.amtacmactivation.log[0] == '/') || (domain.amtacmactivation.log[1] == ':'))) { logpath = domain.amtacmactivation.log; } else { logpath = parent.path.join(obj.parent.datapath, domain.amtacmactivation.log); }
+        try { obj.fs.appendFileSync(logpath, JSON.stringify(x) + '\r\n'); } catch (ex) { console.log(ex); return false; }
+        return true;
+    }
+
+    // Load Intel AMT ACM activation certificates
+    obj.loadIntelAmtAcmCerts = function (amtacmactivation) {
+        if (amtacmactivation == null) return;
+        var acmCerts = [], acmmatch = [];
+        if (amtacmactivation.certs != null) {
+            for (var j in amtacmactivation.certs) {
+                var acmconfig = amtacmactivation.certs[j], r = null;
+
+                if ((typeof acmconfig.certpfx == 'string') && (typeof acmconfig.certpfxpass == 'string')) {
+                    // P12 format, certpfx and certpfxpass
+                    try { r = obj.loadPfxCertificate(obj.parent.path.join(obj.parent.datapath, acmconfig.certpfx), acmconfig.certpfxpass); } catch (ex) { console.log(ex); }
+                    if ((r == null) || (r.certs == null) || (r.keys == null) || (r.certs.length < 2) || (r.keys.length != 1)) continue;
+                } else if ((typeof acmconfig.certfiles == 'object') && (typeof acmconfig.keyfile == 'string')) {
+                    // PEM format, certfiles and keyfile
+                    r = { certs: [], keys: [] };
+                    for (var k in acmconfig.certfiles) { r.certs.push(obj.pki.certificateFromPem(obj.fs.readFileSync(obj.parent.path.join(obj.parent.datapath, acmconfig.certfiles[k])))); }
+                    r.keys.push(obj.pki.privateKeyFromPem(obj.fs.readFileSync(obj.parent.path.join(obj.parent.datapath, acmconfig.keyfile))));
+                    if ((r.certs.length < 2) || (r.keys.length != 1)) continue;
+                }
+
+                /*
+                // Debug: Display all certs & key as PEM
+                for (var k in r.certs) {
+                    var cn = r.certs[k].subject.getField('CN');
+                    if (cn != null) { console.log(cn.value + '\r\n' + obj.pki.certificateToPem(r.certs[k])); } else { console.log(obj.pki.certificateToPem(r.certs[k])); }
+                }
+                console.log(obj.pki.privateKeyToPem(r.keys[0]));
+                */
+
+                // Check if the right OU or OID is present for Intel AMT activation
+                var validActivationCert = false;
+                for (var k in r.certs[0].extensions) { if (r.certs[0].extensions[k]['2.16.840.1.113741.1.2.3'] == true) { validActivationCert = true; } }
+                var orgName = r.certs[0].subject.getField('OU');
+                if ((orgName != null) && (orgName.value == 'Intel(R) Client Setup Certificate')) { validActivationCert = true; }
+                if (validActivationCert == false) continue;
+
+                // Compute the SHA256 and SHA1 hashes of the root certificate
+                for (var k in r.certs) {
+                    if (r.certs[k].subject.hash != r.certs[k].issuer.hash) continue;
+                    const certdata = obj.forge.asn1.toDer(obj.pki.certificateToAsn1(r.certs[k])).data;
+                    var md = obj.forge.md.sha256.create();
+                    md.update(certdata);
+                    acmconfig.sha256 = Buffer.from(md.digest().getBytes(), 'binary').toString('hex');
+                    md = obj.forge.md.sha1.create();
+                    md.update(certdata);
+                    acmconfig.sha1 = Buffer.from(md.digest().getBytes(), 'binary').toString('hex');
+                }
+                if ((acmconfig.sha1 == null) || (acmconfig.sha256 == null)) continue;
+
+                // Get the certificate common name
+                var certCommonName = r.certs[0].subject.getField('CN');
+                if (certCommonName == null) continue;
+                var certCommonNameSplit = certCommonName.value.split('.');
+                var topLevel = certCommonNameSplit[certCommonNameSplit.length - 1].toLowerCase();
+                var topLevelNum = TopLevelDomainExtendedSupport[topLevel];
+                if (topLevelNum != null) {
+                    while (certCommonNameSplit.length > topLevelNum) { certCommonNameSplit.shift(); }
+                    acmconfig.cn = certCommonNameSplit.join('.');
+                } else {
+                    acmconfig.cn = certCommonName.value;
+                }
+
+                // Reorder the certificates from leaf to root.
+                var orderedCerts = [], currenthash = null, orderingError = false;;
+                while ((orderingError == false) && (orderedCerts.length < r.certs.length)) {
+                    orderingError = true;
+                    for (var k in r.certs) {
+                        if (((currenthash == null) && (r.certs[k].subject.hash == r.certs[k].issuer.hash)) || ((r.certs[k].issuer.hash == currenthash) && (r.certs[k].subject.hash != r.certs[k].issuer.hash))) {
+                            currenthash = r.certs[k].subject.hash;
+                            orderedCerts.unshift(Buffer.from(obj.forge.asn1.toDer(obj.pki.certificateToAsn1(r.certs[k])).data, 'binary').toString('base64'));
+                            orderingError = false;
+                        }
+                    }
+                }
+                if (orderingError == true) continue;
+
+                delete acmconfig.cert;
+                delete acmconfig.certpass;
+                acmconfig.certs = orderedCerts;
+                acmconfig.key = obj.pki.privateKeyToPem(r.keys[0]);
+                acmCerts.push(acmconfig);
+                acmmatch.push({ 'sha256': acmconfig.sha256, 'sha1': acmconfig.sha1, 'cn': acmconfig.cn });
+            }
+        }
+        amtacmactivation.acmmatch = acmmatch;
+        amtacmactivation.certs = acmCerts;
+
+        // Add the MeshCentral root cert as a possible activation cert
+        if (obj.parent.certificates.root) {
+            var x1 = obj.parent.certificates.root.cert.indexOf('-----BEGIN CERTIFICATE-----'), x2 = obj.parent.certificates.root.cert.indexOf('-----END CERTIFICATE-----');
+            if ((x1 >= 0) && (x2 > x1)) {
+                var sha256 = obj.crypto.createHash('sha256').update(Buffer.from(obj.parent.certificates.root.cert.substring(x1 + 27, x2), 'base64')).digest('hex');
+                var sha1 = obj.crypto.createHash('sha1').update(Buffer.from(obj.parent.certificates.root.cert.substring(x1 + 27, x2), 'base64')).digest('hex');
+                amtacmactivation.certs.push({ 'sha256': sha256, 'sha1': sha1, 'cn': '*', certs: [obj.pki.certificateFromPem(obj.parent.certificates.root.cert)], key: obj.parent.certificates.root.key });
+                amtacmactivation.acmmatch.push({ 'sha256': sha256, 'sha1': sha1, 'cn': '*' });
+            }
+        }
+
+        //console.log(amtacmactivation);
+    }
+
     // Return the certificate of the remote HTTPS server
     obj.loadPfxCertificate = function (filename, password) {
         var r = { certs: [], keys: [] };
-        var pfxbuf = obj.fs.readFileSync(filename);
-        var pfxb64 = Buffer.from(pfxbuf).toString('base64');
-        var pfxder = obj.forge.util.decode64(pfxb64);
-        var asn = obj.forge.asn1.fromDer(pfxder);
-        var pfx = obj.forge.pkcs12.pkcs12FromAsn1(asn, true, password);
+        var pfxb64 = Buffer.from(obj.fs.readFileSync(filename)).toString('base64');
+        var pfx = obj.forge.pkcs12.pkcs12FromAsn1(obj.forge.asn1.fromDer(obj.forge.util.decode64(pfxb64)), true, password);
+
         // Get the certs from certbags
         var bags = pfx.getBags({ bagType: obj.forge.pki.oids.certBag });
         for (var i = 0; i < bags[obj.forge.pki.oids.certBag].length; i++) { r.certs.push(bags[obj.forge.pki.oids.certBag][i].cert); }
+
         // Get shrouded key from key bags
         bags = pfx.getBags({ bagType: obj.forge.pki.oids.pkcs8ShroudedKeyBag });
         for (var i = 0; i < bags[obj.forge.pki.oids.pkcs8ShroudedKeyBag].length; i++) { r.keys.push(bags[obj.forge.pki.oids.pkcs8ShroudedKeyBag][i].key); }

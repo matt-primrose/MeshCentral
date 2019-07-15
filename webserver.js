@@ -306,7 +306,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (domain.newaccountsrights) { user.siteadmin = domain.newaccountsrights; }
                         var usercount = 0;
                         for (var i in obj.users) { if (obj.users[i].domain == domain.id) { usercount++; } }
-                        if (usercount == 0) { user.siteadmin = 0xFFFFFFFF; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
+                        if (usercount == 0) { user.siteadmin = 4294967295; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
                         obj.users[user._id] = user;
                         obj.db.SetUser(user);
                         var event = { etype: 'user', userid: userid, username: username, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, name is ' + name, domain: domain.id };
@@ -362,7 +362,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (domain.newaccountsrights) { user.siteadmin = domain.newaccountsrights; }
                         var usercount = 0;
                         for (var i in obj.users) { if (obj.users[i].domain == domain.id) { usercount++; } }
-                        if (usercount == 0) { user.siteadmin = 0xFFFFFFFF; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
+                        if (usercount == 0) { user.siteadmin = 4294967295; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
                         obj.users[user._id] = user;
                         obj.db.SetUser(user);
                         var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, name is ' + name, domain: domain.id };
@@ -740,6 +740,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         const domain = checkUserIpAddress(req, res);
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
 
+        // If the email is the username, set this here.
+        if (domain.usernameisemail) { req.body.username = req.body.email; }
+
         // Check if we are allowed to create new users using the login screen
         var domainUserCount = -1;
         if ((domain.newaccounts !== 1) && (domain.newaccounts !== true)) {
@@ -803,7 +806,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                 var user = { type: 'user', _id: 'user/' + domain.id + '/' + req.body.username.toLowerCase(), name: req.body.username, email: req.body.email, creation: Math.floor(Date.now() / 1000), login: Math.floor(Date.now() / 1000), domain: domain.id };
                                 if (domain.newaccountsrights) { user.siteadmin = domain.newaccountsrights; }
                                 if ((domain.passwordrequirements != null) && (domain.passwordrequirements.hint === true) && (req.body.apasswordhint)) { var hint = req.body.apasswordhint; if (hint.length > 250) { hint = hint.substring(0, 250); } user.passhint = hint; }
-                                if (domainUserCount == 0) { user.siteadmin = 0xFFFFFFFF; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
+                                if (domainUserCount == 0) { user.siteadmin = 4294967295; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
                                 obj.users[user._id] = user;
                                 req.session.userid = user._id;
                                 req.session.domainid = domain.id;
@@ -1122,8 +1125,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         var mesh = obj.meshes[meshid];
                         if (mesh) {
                             // Remove user from the mesh
-                            var escUserId = obj.common.escapeFieldName(userid);
-                            if (mesh.links[escUserId] != null) { delete mesh.links[escUserId]; obj.db.Set(mesh); }
+                            if (mesh.links[userid] != null) { delete mesh.links[userid]; obj.db.Set(obj.common.escapeLinksFieldName(mesh)); }
                             // Notify mesh change
                             var change = 'Removed user ' + user.name + ' from group ' + mesh.name;
                             obj.parent.DispatchEvent(['*', mesh._id, user._id, userid], obj, { etype: 'mesh', username: user.name, userid: userid, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: change, domain: domain.id });
@@ -1242,7 +1244,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             req.session.currentNode = '';
             if (obj.users[req.session.userid] == null) {
                 // Create the dummy user ~ with impossible password
-                obj.users[req.session.userid] = { type: 'user', _id: req.session.userid, name: '~', email: '~', domain: domain.id, siteadmin: 0xFFFFFFFF };
+                obj.users[req.session.userid] = { type: 'user', _id: req.session.userid, name: '~', email: '~', domain: domain.id, siteadmin: 4294967295 };
                 obj.db.SetUser(obj.users[req.session.userid]);
             }
         } else if (obj.args.user && obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]) {
@@ -1280,7 +1282,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     var usercount = 0, user2 = { type: 'user', _id: req.session.userid, name: req.connection.user, domain: domain.id, sid: req.session.usersid, creation: Math.floor(Date.now() / 1000), login: Math.floor(Date.now() / 1000) };
                     if (domain.newaccountsrights) { user2.siteadmin = domain.newaccountsrights; }
                     for (var i in obj.users) { if (obj.users[i].domain == domain.id) { usercount++; } }
-                    if (usercount == 0) { user2.siteadmin = 0xFFFFFFFF; } // If this is the first user, give the account site admin.
+                    if (usercount == 0) { user2.siteadmin = 4294967295; } // If this is the first user, give the account site admin.
                     obj.users[req.session.userid] = user2;
                     obj.db.SetUser(user2);
                     var event = { etype: 'user', username: req.connection.user, account: obj.CloneSafeUser(user2), action: 'accountcreate', msg: 'Domain account created, user ' + req.connection.user, domain: domain.id };
@@ -1354,6 +1356,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             if ((obj.args.nousers != true) && (domain.passwordrequirements != null) && (domain.passwordrequirements.force2factor === true)) { features += 0x00040000; } // Force 2-factor auth
             if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) { features += 0x00080000; } // LDAP or SSPI in use, warn that users must login first before adding a user to a group.
             if (domain.amtacmactivation) { features += 0x00100000; } // Intel AMT ACM activation/upgrade is possible
+            if (domain.usernameisemail) { features += 0x00200000; } // Username is email address
 
             // Create a authentication cookie
             const authCookie = obj.parent.encodeCookie({ userid: user._id, domainid: domain.id }, obj.parent.loginCookieEncryptionKey);
@@ -1414,6 +1417,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     function handleRootRequestLogin(req, res, domain, hardwareKeyChallenge, passRequirements) {
         var features = 0;
         if ((parent.config != null) && (parent.config.settings != null) && (parent.config.settings.allowframing == true)) { features += 32; } // Allow site within iframe
+        if (domain.usernameisemail) { features += 0x00200000; } // Username is email address
         var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
         var loginmode = req.session.loginmode;
         delete req.session.loginmode; // Clear this state, if the user hits refresh, we want to go back to the login page.
@@ -1554,7 +1558,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     // Returns the mesh server root certificate
     function handleRootCertRequest(req, res) {
         if ((obj.userAllowedIp != null) && (checkIpAddressEx(req, res, obj.userAllowedIp, false) === false)) { return; } // Check server-wide IP filter only.
-        res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + certificates.RootName + '.cer"' });
+        try {
+            res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + certificates.RootName + '.cer"' });
+        } catch (ex) {
+            res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="rootcert.cer"' });
+        }
         res.send(Buffer.from(getRootCertBase64(), 'base64'));
     }
 
@@ -1662,7 +1670,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         try { stat = obj.fs.statSync(path); } catch (e) { }
         if ((stat != null) && ((stat.mode & 0x004000) == 0)) {
             if (req.query.download == 1) {
-                res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"' + filename + '\"' });
+                try {
+                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"' + filename + '\"' });
+                } catch (ex) {
+                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"file.bin\"' });
+                }
                 try { res.sendFile(obj.path.resolve(__dirname, path)); } catch (e) { res.sendStatus(404); }
             } else {
                 res.render(obj.path.join(obj.parent.webViewsPath, 'download'), { rootCertLink: getRootCertLink(), title: domain.title, title2: domain.title2, domainurl: domain.url, message: "<a href='" + req.path + "?download=1'>" + filename + "</a>, " + stat.size + " byte" + ((stat.size < 2) ? '' : 's') + "." });
@@ -1773,7 +1785,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if (user == null) { res.sendStatus(404); return; }
         const file = obj.getServerFilePath(user, domain, req.query.link);
         if (file == null) { res.sendStatus(404); return; }
-        res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"' + file.name + '\"' });
+        try {
+            res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"' + file.name + '\"' });
+        } catch (ex) {
+            res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=\"file.bin\"' });
+        }
         try { res.sendFile(file.fullpath); } catch (e) { res.sendStatus(404); }
     }
 
@@ -2153,6 +2169,190 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         });
     }
 
+    // Handle a Intel AMT activation request
+    function handleAmtActivateWebSocket(ws, req) {
+        const domain = checkUserIpAddress(ws, req);
+        if (domain == null) { ws.send(JSON.stringify({ errorText: 'Invalid domain' })); ws.close(); return; }
+        if (req.query.id == null) { ws.send(JSON.stringify({ errorText: 'Missing group identifier' })); ws.close(); return; }
+
+        // Fetch the mesh object
+        ws.meshid = 'mesh/' + domain.id + '/' + req.query.id;
+        const mesh = obj.meshes[ws.meshid];
+        if (mesh == null) { delete ws.meshid; ws.send(JSON.stringify({ errorText: 'Invalid device group' })); ws.close(); return; }
+        if (mesh.mtype != 1) { ws.send(JSON.stringify({ errorText: 'Invalid device group type' })); ws.close(); return; }
+        
+        // Fetch the remote IP:Port for logging
+        ws.remoteaddr = (req.ip.startsWith('::ffff:')) ? (req.ip.substring(7)) : req.ip;
+        ws.remoteaddrport = ws.remoteaddr + ':' + ws._socket.remotePort;
+
+        // When data is received from the web socket, echo it back
+        ws.on('message', function (data) {
+            // Parse the incoming command
+            var cmd = null;
+            try { cmd = JSON.parse(data); } catch (ex) { };
+            if (cmd == null) return;
+
+            // Process the command
+            switch (cmd.action) {
+                case 'ccmactivate':
+                case 'acmactivate': {
+                    // Check the command
+                    if (cmd.version != 1) { ws.send(JSON.stringify({ errorText: 'Unsupported version' })); ws.close(); return; }
+                    if (obj.common.validateString(cmd.realm, 16, 256) == false) { ws.send(JSON.stringify({ errorText: 'Invalid realm argument' })); ws.close(); return; }
+                    if (obj.common.validateString(cmd.uuid, 36, 36) == false) { ws.send(JSON.stringify({ errorText: 'Invalid UUID argument' })); ws.close(); return; }
+                    if (typeof cmd.hashes != 'object') { ws.send(JSON.stringify({ errorText: 'Invalid hashes' })); ws.close(); return; }
+                    if (typeof cmd.fqdn != 'string') { ws.send(JSON.stringify({ errorText: 'Invalid FQDN' })); ws.close(); return; }
+                    if ((obj.common.validateString(cmd.ver, 5, 16) == false) || (cmd.ver.split('.').length != 3)) { ws.send(JSON.stringify({ errorText: 'Invalid Intel AMT version' })); ws.close(); return; }
+                    if (obj.common.validateArray(cmd.modes, 1, 2) == false) { ws.send(JSON.stringify({ errorText: 'Invalid activation modes' })); ws.close(); return; }
+                    if (obj.common.validateInt(cmd.currentMode, 0, 2) == false) { ws.send(JSON.stringify({ errorText: 'Invalid current mode' })); ws.close(); return; }
+
+                    // Get the current Intel AMT policy
+                    var mesh = obj.meshes[ws.meshid], activationMode = 4; // activationMode: 2 = CCM, 4 = ACM
+                    if ((mesh == null) || (mesh.amt == null) || (mesh.amt.password == null) || ((mesh.amt.type != 2) && (mesh.amt.type != 3))) { ws.send(JSON.stringify({ errorText: 'Unable to activate' })); ws.close(); return; }
+                    if ((mesh.amt.type != 3) || (domain.amtacmactivation == null) || (domain.amtacmactivation.acmmatch == null)) { activationMode = 2; }
+
+                    if (activationMode == 4) {
+                        // Check if we have a FQDN/Hash match
+                        var matchingHash = null, matchingCN = null;
+                        for (var i in domain.amtacmactivation.acmmatch) {
+                            // Check for a matching FQDN
+                            if ((domain.amtacmactivation.acmmatch[i].cn == '*') || (domain.amtacmactivation.acmmatch[i].cn.toLowerCase() == cmd.fqdn)) {
+                                // Check for a matching certificate
+                                if (cmd.hashes.indexOf(domain.amtacmactivation.acmmatch[i].sha256) >= 0) {
+                                    matchingCN = domain.amtacmactivation.acmmatch[i].cn;
+                                    matchingHash = domain.amtacmactivation.acmmatch[i].sha256;
+                                    continue;
+                                } else if (cmd.hashes.indexOf(domain.amtacmactivation.acmmatch[i].sha1) >= 0) {
+                                    matchingCN = domain.amtacmactivation.acmmatch[i].cn;
+                                    matchingHash = domain.amtacmactivation.acmmatch[i].sha1;
+                                    continue;
+                                }
+                            }
+                        }
+                        // If no cert match or wildcard match which is not yet supported, do CCM activation.
+                        if ((matchingHash == null) || (matchingCN == '*')) { activationMode = 2; } else { cmd.hash = matchingHash; }
+                    }
+
+                    // Check if we are going to activate in an allowed mode. cmd.modes: 1 = CCM, 2 = ACM
+                    if ((activationMode == 4) && (cmd.modes.indexOf(2) == -1)) { activationMode = 2; } // We want to do ACM, but mode is not allowed. Change to CCM.
+
+                    // If we want to do CCM, but mode is not allowed. Error out.
+                    if ((activationMode == 2) && (cmd.modes.indexOf(1) == -1)) { ws.send(JSON.stringify({ errorText: 'Unsupported activation mode' })); ws.close(); return; } 
+
+                    // Get the Intel AMT admin password, randomize if needed.
+                    var amtpassword = ((mesh.amt.password == '') ? getRandomAmtPassword() : mesh.amt.password);
+                    if (checkAmtPassword(amtpassword) == false) { ws.send(JSON.stringify({ errorText: 'Invalid Intel AMT password' })); ws.close(); return; } // Invalid Intel AMT password, this should never happen.
+
+                    // Save some state, if activation is succesful, we need this to add the device
+                    ws.xxstate = { uuid: cmd.uuid, realm: cmd.realm, tag: cmd.tag, name: cmd.name, pass: amtpassword, flags: activationMode, ver: cmd.ver }; // Flags: 2 = CCM, 4 = ACM
+
+                    if (activationMode == 4) {
+                        // ACM: Agent is asking the server to sign an Intel AMT ACM activation request
+                        var signResponse = parent.certificateOperations.signAcmRequest(domain, cmd, 'admin', amtpassword, ws.remoteaddrport, null, ws.meshid, null, null);
+                        ws.send(JSON.stringify(signResponse));
+                    } else {
+                        // CCM: Log the activation request, logging is a required step for activation.
+                        if (parent.certificateOperations.logAmtActivation(domain, { time: new Date(), action: 'ccmactivate', domain: domain.id, amtUuid: cmd.uuid, amtRealm: cmd.realm, user: 'admin', password: amtpassword, ipport: ws.remoteaddrport, meshid: ws.meshid, tag: cmd.tag, name: cmd.name }) == false) return { errorText: 'Unable to log operation' };
+
+                        // Compute the HTTP digest hash and send the response for CCM activation
+                        ws.send(JSON.stringify({ action: 'ccmactivate', password: obj.crypto.createHash('md5').update('admin:' + cmd.realm + ':' + amtpassword).digest('hex') }));
+                    }
+                    break;
+                }
+                case 'ccmactivate-failed':
+                case 'acmactivate-failed': {
+                    // Log the activation response
+                    parent.certificateOperations.logAmtActivation(domain, { time: new Date(), action: cmd.action, domain: domain.id, amtUuid: cmd.uuid, ipport: ws.remoteaddrport, meshid: ws.meshid });
+                    break;
+                }
+                case 'amtdiscover':
+                case 'ccmactivate-success':
+                case 'acmactivate-success': {
+                    // If this is a discovery command, set the state.
+                    if (cmd.action == 'amtdiscover') {
+                        if (cmd.version != 1) { ws.send(JSON.stringify({ errorText: 'Unsupported version' })); ws.close(); return; }
+                        if (obj.common.validateString(cmd.realm, 16, 256) == false) { ws.send(JSON.stringify({ errorText: 'Invalid realm argument' })); ws.close(); return; }
+                        if (obj.common.validateString(cmd.uuid, 36, 36) == false) { ws.send(JSON.stringify({ errorText: 'Invalid UUID argument' })); ws.close(); return; }
+                        if (typeof cmd.hashes != 'object') { ws.send(JSON.stringify({ errorText: 'Invalid hashes' })); ws.close(); return; }
+                        if (typeof cmd.fqdn != 'string') { ws.send(JSON.stringify({ errorText: 'Invalid FQDN' })); ws.close(); return; }
+                        if ((obj.common.validateString(cmd.ver, 5, 16) == false) || (cmd.ver.split('.').length != 3)) { ws.send(JSON.stringify({ errorText: 'Invalid Intel AMT version' })); ws.close(); return; }
+                        if (obj.common.validateArray(cmd.modes, 1, 2) == false) { ws.send(JSON.stringify({ errorText: 'Invalid activation modes' })); ws.close(); return; }
+                        if (obj.common.validateInt(cmd.currentMode, 0, 2) == false) { ws.send(JSON.stringify({ errorText: 'Invalid current mode' })); ws.close(); return; }
+                        var activationMode = 0; if (cmd.currentMode == 1) { activationMode = 2; } else if (cmd.currentMode == 2) { activationMode = 4; }
+                        ws.xxstate = { uuid: cmd.uuid, realm: cmd.realm, tag: cmd.tag, name: cmd.name, flags: activationMode, ver: cmd.ver }; // Flags: 2 = CCM, 4 = ACM
+                    } else {
+                        // If this is an activation success, check that state was set already.
+                        if (ws.xxstate == null) { ws.send(JSON.stringify({ errorText: 'Invalid command' })); ws.close(); return; }
+                    }
+
+                    // Log the activation response
+                    parent.certificateOperations.logAmtActivation(domain, { time: new Date(), action: cmd.action, domain: domain.id, amtUuid: cmd.uuid, ipport: ws.remoteaddrport, meshid: ws.meshid });
+
+                    // Get the current Intel AMT policy
+                    var mesh = obj.meshes[ws.meshid];
+                    if (mesh == null) { ws.send(JSON.stringify({ errorText: 'Unknown device group' })); ws.close(); return; }
+
+                    // Fix the computer name if needed
+                    if ((ws.xxstate.name == null) || (ws.xxstate.name.length == 0)) { ws.xxstate.name = ws.xxstate.uuid; }
+
+                    db.getAmtUuidNode(ws.meshid, ws.xxstate.uuid, function (err, nodes) {
+                        if ((nodes == null) || (nodes.length == 0)) {
+                            // Create a new nodeid
+                            parent.crypto.randomBytes(48, function (err, buf) {
+                                // Create the new node
+                                var xxnodeid = 'node/' + domain.id + '/' + buf.toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
+                                var device = { type: 'node', _id: xxnodeid, meshid: ws.meshid, name: ws.xxstate.name, rname: ws.xxstate.name, host: ws.remoteaddr, domain: domain.id, intelamt: { state: 2, flags: ws.xxstate.flags, tls: 0, uuid: ws.xxstate.uuid, realm: ws.xxstate.realm, tag: ws.xxstate.tag, ver: ws.xxstate.ver } };
+                                if (ws.xxstate.pass != null) { device.intelamt.user = 'admin'; device.intelamt.pass = ws.xxstate.pass; }
+                                if (device.intelamt.flags != 0) { device.intelamt.state = 2; } else { device.intelamt.state = 0; }
+                                db.Set(device);
+
+                                // Event the new node
+                                var device2 = obj.common.Clone(device);
+                                delete device2.intelamt.pass; // Remove the Intel AMT password before eventing this.
+                                parent.DispatchEvent(['*', ws.meshid], obj, { etype: 'node', action: 'addnode', node: device2, msg: 'Added device ' + ws.xxstate.name + ' to mesh ' + mesh.name, domain: domain.id });
+                            });
+                        } else {
+                            // Change an existing device
+                            var device = nodes[0];
+                            if (device.host != ws.remoteaddr) { device.host = ws.remoteaddr; }
+                            if ((ws.xxstate.name != null) && (device.rname != ws.xxstate.name)) { device.rname = ws.xxstate.name; }
+                            if (device.intelamt.flags != 0) {
+                                if (device.intelamt.state != 2) { device.intelamt.state = 2; }
+                            }
+                            if (device.intelamt.flags != ws.xxstate.flags) { device.intelamt.state = ws.xxstate.flags; }
+                            if (ws.xxstate.pass != null) {
+                                if (device.intelamt.user != 'admin') { device.intelamt.user = 'admin'; }
+                                if (device.intelamt.pass != ws.xxstate.pass) { device.intelamt.pass = ws.xxstate.pass; }
+                            }
+                            if (device.intelamt.realm != ws.xxstate.realm) { device.intelamt.realm = ws.xxstate.realm; }
+                            if (ws.xxstate.realm == null) { delete device.intelamt.tag; }
+                            else if (device.intelamt.tag != ws.xxstate.tag) { device.intelamt.tag = ws.xxstate.tag; }
+                            if (device.intelamt.ver != ws.xxstate.ver) { device.intelamt.ver = ws.xxstate.ver; }
+                            db.Set(device);
+
+                            // Event the new node
+                            var device2 = obj.common.Clone(device);
+                            delete device2.intelamt.pass; // Remove the Intel AMT password before eventing this.
+                            if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the node. Another event will come.
+                            parent.DispatchEvent(['*', ws.meshid], obj, { etype: 'node', action: 'changenode', nodeid: device2._id, node: device2, msg: 'Changed device ' + device.name + ' in mesh ' + mesh.name, domain: domain.id });
+                        }
+                    });
+
+                    if (cmd.action == 'amtdiscover') { ws.send(JSON.stringify({ action: 'amtdiscover' })); }
+                    break;
+                }
+                default: {
+                    // This is not a known command
+                    ws.send(JSON.stringify({ errorText: 'Invalid command' })); ws.close(); return;
+                }
+            }
+        });
+
+        // If close or error, do nothing.
+        ws.on('error', function (err) { });
+        ws.on('close', function (req) { });
+    }
+
     // Handle the web socket echo request, just echo back the data sent
     function handleEchoWebSocket(ws, req) {
         const domain = checkUserIpAddress(ws, req);
@@ -2328,7 +2528,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if (domain == null) { res.sendStatus(404); return; }
 
         // If required, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true) && (req.session.userid == null)) { res.sendStatus(401); return; }
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { res.sendStatus(401); return; }
 
         if (req.query.id != null) {
             // Send a specific mesh agent back
@@ -2344,16 +2544,20 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 if (mesh == null) { res.sendStatus(401); return; }
 
                 // If required, check if this user has rights to do this
-                if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true)) {
+                if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
                     var user = obj.users[req.session.userid];
-                    var escUserId = obj.common.escapeFieldName(user._id);
-                    if ((user == null) || (mesh.links[escUserId] == null) || ((mesh.links[escUserId].rights & 1) == 0)) { res.sendStatus(401); return; }
+                    if ((user == null) || (mesh.links[user._id] == null) || ((mesh.links[user._id].rights & 1) == 0)) { res.sendStatus(401); return; }
                     if (domain.id != mesh.domain) { res.sendStatus(401); return; }
                 }
 
                 var meshidhex = Buffer.from(req.query.meshid.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
                 var serveridhex = Buffer.from(obj.agentCertificateHashBase64.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+
+                // Prepare a mesh agent file name using the device group name.
+                var meshfilename = mesh.name
+                meshfilename = meshfilename.split('\\').join('').split('/').join('').split(':').join('').split('*').join('').split('?').join('').split('"').join('').split('<').join('').split('>').join('').split('|').join('').split(' ').join('').split('\'').join('');
+                if (argentInfo.rname.endsWith('.exe')) { meshfilename = argentInfo.rname.substring(0, argentInfo.rname.length - 4) + '-' + meshfilename + '.exe'; } else { meshfilename = argentInfo.rname + '-' + meshfilename; }
 
                 // Build the agent connection URL. If we are using a sub-domain or one with a DNS, we need to craft the URL correctly.
                 var xdomain = (domain.dns == null) ? domain.id : '';
@@ -2366,7 +2570,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 if (obj.args.agentconfig) { for (var i in obj.args.agentconfig) { meshsettings += obj.args.agentconfig[i] + "\r\n"; } }
                 if (domain.agentconfig) { for (var i in domain.agentconfig) { meshsettings += domain.agentconfig[i] + "\r\n"; } }
 
-                res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + argentInfo.rname + '"' });
+                try {
+                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + meshfilename + '"' });
+                } catch (ex) {
+                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + argentInfo.rname + '"' });
+                }
                 obj.parent.exeHandler.streamExeWithMeshPolicy({ platform: 'win32', sourceFileName: obj.parent.meshAgentBinaries[req.query.id].path, destinationStream: res, msh: meshsettings, peinfo: obj.parent.meshAgentBinaries[req.query.id].pe });
             }
         } else if (req.query.script != null) {
@@ -2374,7 +2582,20 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             var scriptInfo = obj.parent.meshAgentInstallScripts[req.query.script];
             if (scriptInfo == null) { res.sendStatus(404); return; }
             res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'text/plain', 'Content-Disposition': 'attachment; filename="' + scriptInfo.rname + '"' });
-            res.send(scriptInfo.data.split('{{{noproxy}}}').join((domain.agentnoproxy === true)?'--no-proxy ':''));
+            var data = scriptInfo.data;
+            var cmdoptions = { wgetoptionshttp: '', wgetoptionshttps: '', curloptionshttp: '-L ', curloptionshttps: '-L ' }
+            if (isTrustedCert() != true) {
+                cmdoptions.wgetoptionshttps += '--no-check-certificate ';
+                cmdoptions.curloptionshttps += '-k ';
+            }
+            if (domain.agentnoproxy === true) {
+                cmdoptions.wgetoptionshttp += '--no-proxy ';
+                cmdoptions.wgetoptionshttps += '--no-proxy ';
+                cmdoptions.curloptionshttp += '--noproxy \'*\' ';
+                cmdoptions.curloptionshttps += '--noproxy \'*\' ';
+            }
+            for (var i in cmdoptions) { data = data.split('{{{' + i + '}}}').join(cmdoptions[i]); }
+            res.send(data);
         } else if (req.query.meshcmd != null) {
             // Send meshcmd for a specific platform back
             var agentid = parseInt(req.query.meshcmd);
@@ -2446,7 +2667,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             } else if (req.query.meshaction == 'winrouter') {
                 var p = obj.path.join(__dirname, 'agents', 'MeshCentralRouter.exe');
                 if (obj.fs.existsSync(p)) {
-                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'text/plain', 'Content-Disposition': 'attachment; filename="MeshCentralRouter.exe"' });
+                    res.set({ 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0', 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="MeshCentralRouter.exe"' });
                     try { res.sendFile(p); } catch (e) { res.sendStatus(404); }
                 } else { res.sendStatus(404); }
             } else {
@@ -2459,9 +2680,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             for (var agentid in obj.parent.meshAgentBinaries) {
                 var agentinfo = obj.parent.meshAgentBinaries[agentid];
                 response += '<tr><td>' + agentinfo.id + '</td><td>' + agentinfo.desc + '</td>';
-                response += '<td><a rel="noreferrer noopener" target=_blank href="' + req.originalUrl + '?id=' + agentinfo.id + '">' + agentinfo.rname + '</a></td>';
+                response += '<td><a download href="' + req.originalUrl + '?id=' + agentinfo.id + '">' + agentinfo.rname + '</a></td>';
                 response += '<td>' + agentinfo.size + '</td><td>' + agentinfo.hash + '</td>';
-                response += '<td><a rel="noreferrer noopener" target=_blank href="' + req.originalUrl + '?meshcmd=' + agentinfo.id + '">' + agentinfo.rname.replace('agent', 'cmd') + '</a></td></tr>';
+                response += '<td><a download href="' + req.originalUrl + '?meshcmd=' + agentinfo.id + '">' + agentinfo.rname.replace('agent', 'cmd') + '</a></td></tr>';
             }
             response += '</table></body></html>';
             res.send(response);
@@ -2480,7 +2701,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if ((domain == null) || (req.query.id == null)) { res.sendStatus(404); return; }
 
         // If required, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true) && (req.session.userid == null)) { res.sendStatus(401); return; }
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { res.sendStatus(401); return; }
 
         // Send a specific mesh agent back
         var argentInfo = obj.parent.meshAgentBinaries[req.query.id];
@@ -2492,10 +2713,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         if (mesh == null) { res.sendStatus(401); return; }
 
         // If required, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true)) {
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
             var user = obj.users[req.session.userid];
-            var escUserId = obj.common.escapeFieldName(user._id);
-            if ((user == null) || (mesh.links[escUserId] == null) || ((mesh.links[escUserId].rights & 1) == 0)) { res.sendStatus(401); return; }
+            if ((user == null) || (mesh.links[user._id] == null) || ((mesh.links[user._id].rights & 1) == 0)) { res.sendStatus(401); return; }
             if (domain.id != mesh.domain) { res.sendStatus(401); return; }
         }
 
@@ -2575,17 +2795,16 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         //if ((domain.id !== '') || (!req.session) || (req.session == null) || (!req.session.userid)) { res.sendStatus(401); return; }
 
         // If required, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true) && (req.session.userid == null)) { res.sendStatus(401); return; }
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { res.sendStatus(401); return; }
 
         // Fetch the mesh object
         var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.id];
         if (mesh == null) { res.sendStatus(401); return; }
 
         // If needed, check if this user has rights to do this
-        if ((obj.parent.config.settings != null) && (obj.parent.config.settings.lockagentdownload == true)) {
+        if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
             var user = obj.users[req.session.userid];
-            var escUserId = obj.common.escapeFieldName(user._id);
-            if ((user == null) || (mesh.links[escUserId] == null) || ((mesh.links[escUserId].rights & 1) == 0)) { res.sendStatus(401); return; }
+            if ((user == null) || (mesh.links[user._id] == null) || ((mesh.links[user._id].rights & 1) == 0)) { res.sendStatus(401); return; }
             if (domain.id != mesh.domain) { res.sendStatus(401); return; }
         }
 
@@ -2747,6 +2966,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             obj.app.ws(url + 'control.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, function (ws1, req1, domain, user, cookie) { obj.meshUserHandler.CreateMeshUser(obj, obj.db, ws1, req1, obj.args, domain, user); }); });
             obj.app.get(url + 'logo.png', handleLogoRequest);
             obj.app.get(url + 'welcome.jpg', handleWelcomeImageRequest);
+            obj.app.ws(url + 'amtactivate', handleAmtActivateWebSocket);
 
             // Server redirects
             if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { if (j[0] != '_') { obj.app.get(url + j, handleDomainRedirect); } } }
@@ -3159,6 +3379,10 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
 
     // Return the query string portion of the URL, the ? and anything after.
     function getQueryPortion(req) { var s = req.url.indexOf('?'); if (s == -1) { if (req.body && req.body.urlargs) { return req.body.urlargs; } return ''; } return req.url.substring(s); }
+
+    // Generate a random Intel AMT password
+    function checkAmtPassword(p) { return (p.length > 7) && (/\d/.test(p)) && (/[a-z]/.test(p)) && (/[A-Z]/.test(p)) && (/\W/.test(p)); }
+    function getRandomAmtPassword() { var p; do { p = Buffer.from(obj.crypto.randomBytes(9), 'binary').toString('base64').split('/').join('@'); } while (checkAmtPassword(p) == false); return p; }
 
     return obj;
 };

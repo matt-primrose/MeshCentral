@@ -31,6 +31,7 @@ module.exports.CreateDB = function (parent, func) {
     var expireEventsSeconds = (60 * 60 * 24 * 20);              // By default, expire events after 20 days. (Seconds * Minutes * Hours * Days)
     var expirePowerEventsSeconds = (60 * 60 * 24 * 10);         // By default, expire power events after 10 days. (Seconds * Minutes * Hours * Days)
     var expireServerStatsSeconds = (60 * 60 * 24 * 30);         // By default, expire power events after 30 days. (Seconds * Minutes * Hours * Days)
+    const common = require('./common.js');
     obj.identifier = null;
     obj.dbKey = null;
     obj.changeStream = false;
@@ -851,6 +852,7 @@ module.exports.CreateDB = function (parent, func) {
 
     // Called when a device group has changed
     function dbMeshChange(meshChange, added) {
+        common.unEscapeLinksFieldName(meshChange.fullDocument);
         const mesh = meshChange.fullDocument;
 
         // Update the mesh object in memory
@@ -864,7 +866,8 @@ module.exports.CreateDB = function (parent, func) {
         mesh.nolog = 1;
         delete mesh.type;
         delete mesh._id;
-        parent.DispatchEvent(['*', mesh._id], obj, mesh);
+        if (mesh.amt) { delete mesh.amt.password; } // Remove the Intel AMT password if present
+        parent.DispatchEvent(['*', mesh.meshid], obj, mesh);
     }
 
     // Called when a user account has changed

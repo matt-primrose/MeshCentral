@@ -79,7 +79,7 @@ var CreateAmtRedirect = function (module, authCookie) {
                 // Chrome & Firefox (Draft)
                 fileReaderInuse = true;
                 fileReader.readAsBinaryString(new Blob([e.data]));
-            } else if (f.readAsArrayBuffer) {
+            } else if (fileReader.readAsArrayBuffer) {
                 // Chrome & Firefox (Spec)
                 fileReaderInuse = true;
                 fileReader.readAsArrayBuffer(e.data);
@@ -261,7 +261,7 @@ var CreateAmtRedirect = function (module, authCookie) {
             if (obj.debugmode == 1) { console.log('Send', x); }
             var b = new Uint8Array(x.length);
             for (var i = 0; i < x.length; ++i) { b[i] = x.charCodeAt(i); }
-            obj.socket.send(b.buffer);
+            try { obj.socket.send(b.buffer); } catch (ex) { }
         }
     }
 

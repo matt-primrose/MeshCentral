@@ -35,16 +35,17 @@ function AmtManager(agent, db, isdebug) {
     var amtpolicy = null;
     var obj = this;
     var mestate;
+    var trustedHashes = null;;
     obj.state = 0;
     obj.lmsstate = 0;
     obj.onStateChange = null;
     obj.setDebug = function (x) { isdebug = x; }
     
     // Set current Intel AMT activation policy
-    obj.setPolicy = function (policy) {
-        if (JSON.stringify(amtpolicy) != JSON.stringify(policy)) {
+    obj.setPolicy = function (policy, forceApply) {
+        if (forceApply || (JSON.stringify(amtpolicy) != JSON.stringify(policy))) {
             amtpolicy = policy;
-            if (applyPolicyTimer == null) { obj.applyPolicy(); }
+            if (applyPolicyTimer == null) { applyPolicyTimer = setTimeout(obj.applyPolicy, 8000); }
         }
     }
 
@@ -57,7 +58,7 @@ function AmtManager(agent, db, isdebug) {
         try {
             var amtMeiLib = require('amt-mei');
             amtMei = new amtMeiLib();
-            amtMei.on('error', function (e) { debug('MEI error'); amtMei = null; amtMeiState = -1; obj.state = -1; obj.onStateChange(amtMeiState); });
+            amtMei.on('error', function (e) { debug('MEI error'); amtMei = null; amtMeiState = -1; obj.state = -1; if (obj.onStateChange != null) { obj.onStateChange(amtMeiState); } });
             amtMei.getVersion(function (result) {
                 if (result == null) {
                     amtMeiState = -1;
@@ -433,14 +434,29 @@ function AmtManager(agent, db, isdebug) {
     }
 
     //
+    // Get Intel AMT activation hashes
+    //
+    obj.getTrustedHashes = function (func, tag) {
+        if (trustedHashes != null) { func(tag); }
+        trustedHashes = [];
+        amtMei.getHashHandles(function (handles) {
+            var exitOnCount = handles.length;
+            for (var i = 0; i < handles.length; ++i) {
+                this.getCertHashEntry(handles[i], function (result) {
+                    if (result.isActive == 1) { trustedHashes.push(result.certificateHash.toLowerCase()); }
+                    if (--exitOnCount == 0) { func(tag); }
+                });
+            }
+        });
+    }
+
+    //
     // Activate Intel AMT to ACM
     //
 
     obj.activeToACM = function (mestate) {
-        //debug('ProvisioningState: ' + JSON.stringify(mestate.ProvisioningState));
-        if (mestate.ProvisioningState != 0) return; // Can't activate unless in "PRE" activation mode.
+        if ((mestate.ProvisioningState != 0) || (amtpolicy == null) || (amtpolicy.match == null)) return; // Can't activate unless in "PRE" activation mode & policy is present.
         var trustedFqdn = null;
-        //debug('Wired Interface: ' + JSON.stringify(mestate.net0));
         if ((mestate.net0 == null) && (mestate.net0.enabled != 0)) return; // Can't activate unless wired interface is active
         if (mestate.DNS) { trustedFqdn = mestate.DNS; } // If Intel AMT has a trusted DNS suffix set, use that one.
         else {
@@ -448,42 +464,63 @@ function AmtManager(agent, db, isdebug) {
             var interfaces = require('os').networkInterfaces();
             for (var i in interfaces) {
                 for (var j in interfaces[i]) {
-                    if ((interfaces[i][j].mac == mestate.net0.mac) && (interfaces[i][j].fqdn != null) && (interfaces[i][j].fqdn != '')) { trustedFqdn = interfaces[i][j].fqdn; }
+                    if ((interfaces[i][j].mac == mestate.net0.mac) && (interfaces[i][j].fqdn != null) && (interfaces[i][j].fqdn != '')) { trustedFqdn = interfaces[i][j].fqdn.toLowerCase(); }
                 }
             }
         }
         if (trustedFqdn == null) return; // No trusted DNS suffix.
-        //debug('TrustedFqdn: ' + trustedFqdn);
-        
+
+        // Check if we have a ACM policy match
+        var hashMatch = null;
+        for (var i in amtpolicy.match) { var m = amtpolicy.match[i]; if (m.cn == trustedFqdn) { for (var j in trustedHashes) { if ((trustedHashes[j] == m.sha256) || (trustedHashes[j] == m.sha1)) { hashMatch = trustedHashes[j]; } } } }
+        if (hashMatch == null) return; // No certificate / FQDN match
+
         // Fetch Intel AMT realm and activation nonce and get ready to ACM activation...
         if (osamtstack != null) {
-            //debug('Trying to get Intel AMT activation information...');
-            osamtstack.BatchEnum(null, ['*AMT_GeneralSettings', '*IPS_HostBasedSetupService'], activeToACM2, trustedFqdn);
+            osamtstack.BatchEnum(null, ['*AMT_GeneralSettings', '*IPS_HostBasedSetupService'], activeToACM2, { fqdn: trustedFqdn, hash: hashMatch, uuid: mestate.UUID });
         } else {
-            //debug('ACM Activation: Trying to get local account info...');
             amtMei.getLocalSystemAccount(function (x) {
                 if ((x != null) && x.user && x.pass) {
-                    //debug('Intel AMT local account info: User=' + x.user + ', Pass=' + x.pass + '.');
                     var transport = require('amt-wsman-duk');
                     var wsman = require('amt-wsman');
                     var amt = require('amt');
                     oswsstack = new wsman(transport, '127.0.0.1', 16992, x.user, x.pass, false);
                     osamtstack = new amt(oswsstack);
-                    //debug('Trying to get Intel AMT activation information...');
-                    osamtstack.BatchEnum(null, ['*AMT_GeneralSettings', '*IPS_HostBasedSetupService'], activeToACM2, trustedFqdn);
-                } else {
-                    //debug('Unable to get $$OsAdmin password.');
+                    osamtstack.BatchEnum(null, ['*AMT_GeneralSettings', '*IPS_HostBasedSetupService'], activeToACM2, { fqdn: trustedFqdn, hash: hashMatch, uuid: mestate.UUID });
                 }
             });
         }
     }
 
-    function activeToACM2(stack, name, responses, status, trustedFqdn) {
-        debug('activeToACM2: ' + trustedFqdn);
+    function activeToACM2(stack, name, responses, status, tag) {
         if (status != 200) return;
         var fwNonce = responses['IPS_HostBasedSetupService'].response['ConfigurationNonce'];
         var digestRealm = responses['AMT_GeneralSettings'].response['DigestRealm'];
-        agent.SendCommand({ "action": "acmactivate", "nonce": fwNonce, "realm": digestRealm, "fqdn": trustedFqdn });
+        agent.SendCommand({ "action": "acmactivate", "nonce": fwNonce, "realm": digestRealm, "fqdn": tag.fqdn, "hash": tag.hash, "uuid": tag.uuid });
+    }
+
+    // Called when the server responds with a ACM activation signature.
+    obj.setAcmResponse = function (acmdata) { acmdata.index = 0; performAcmActivation(acmdata); }
+
+    // Recursive function to inject the provisioning certificates into AMT in the proper order and completes ACM activation
+    function performAcmActivation(acmdata) {
+        var leaf = (acmdata.index == 0), root = (acmdata.index == (acmdata.certs.length - 1));
+        if ((acmdata.index < acmdata.certs.length) && (acmdata.certs[acmdata.index] != null)) {
+            osamtstack.IPS_HostBasedSetupService_AddNextCertInChain(acmdata.certs[acmdata.index], leaf, root, function (stack, name, responses, status) {
+                if (status !== 200) { debug('AddNextCertInChain status=' + status); return; }
+                else if (responses['Body']['ReturnValue'] !== 0) { debug('AddNextCertInChain error=' + responses['Body']['ReturnValue']); return; }
+                else { acmdata.index++; performAcmActivation(acmdata); }
+            });
+        } else {
+            osamtstack.IPS_HostBasedSetupService_AdminSetup(2, acmdata.password, acmdata.nonce, 2, acmdata.signature,
+                function (stack, name, responses, status) {
+                    if ((status == 200) && (responses['Body']['ReturnValue'] == 0)) {
+                        // ACM activation success, force an update to the server so it can get our new state.
+                        if (obj.onStateChange != null) { obj.onStateChange(2); }
+                    }
+                }
+            );
+        }
     }
 
     //
@@ -556,13 +593,11 @@ function AmtManager(agent, db, isdebug) {
         obj.getAmtInfo(function (meinfo) {
             if ((amtpolicy.type == 1) && (meinfo.ProvisioningState == 2) && ((meinfo.Flags & 2) != 0)) {
                 // CCM Deactivation Policy.
-                wsstack = null;
-                amtstack = null;
+                wsstack = amtstack = null;
                 obj.deactivateCCM();
             } else if ((amtpolicy.type == 2) && (meinfo.ProvisioningState == 0)) {
                 // CCM Activation Policy
-                wsstack = null;
-                amtstack = null;
+                wsstack = amtstack = null;
                 if ((amtpolicy.password == null) || (amtpolicy.password == '')) { intelAmtAdminPass = null; }
                 obj.activeToCCM(intelAmtAdminPass);
             } else if ((amtpolicy.type == 2) && (meinfo.ProvisioningState == 2) && (intelAmtAdminPass != null) && ((meinfo.Flags & 2) != 0)) {
@@ -575,9 +610,9 @@ function AmtManager(agent, db, isdebug) {
                 var wsmanQuery = ['*AMT_GeneralSettings', '*IPS_HostBasedSetupService', '*AMT_RedirectionService', '*CIM_KVMRedirectionSAP', 'AMT_PublicKeyCertificate', '*AMT_EnvironmentDetectionSettingData'];
                 if (amtpolicy.cirasetup == 2) { wsmanQuery.push("AMT_ManagementPresenceRemoteSAP", "AMT_RemoteAccessCredentialContext", "AMT_RemoteAccessPolicyAppliesToMPS", "AMT_RemoteAccessPolicyRule", "*AMT_UserInitiatedConnectionService", "AMT_MPSUsernamePassword"); }
                 try { amtstack.BatchEnum(null, wsmanQuery, wsmanPassTestResponse); } catch (ex) { debug(ex); }
-            } else if ((amtpolicy.type == 3) && (meinfo.ProvisioningState == 0)) {
+            } else if ((amtpolicy.type == 3) && (meinfo.ProvisioningState == 0) && (agent.isControlChannelConnected)) {
                 // ACM Activation Policy
-                obj.activeToACM(meinfo);
+                obj.getTrustedHashes(obj.activeToACM, meinfo);
             } else {
                 // Other possible cases...
             }
