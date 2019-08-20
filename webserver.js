@@ -319,7 +319,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (user.name != username) {
                             user.name = username;
                             obj.db.SetUser(user);
-                            var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Changed account display name to ' + username, domain: domain.id };
+                            var event = { etype: 'user', userid: userid, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Changed account display name to ' + username, domain: domain.id };
                             if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
                             parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
                         }
@@ -365,7 +365,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (usercount == 0) { user.siteadmin = 4294967295; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
                         obj.users[user._id] = user;
                         obj.db.SetUser(user);
-                        var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, name is ' + name, domain: domain.id };
+                        var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, name is ' + name, domain: domain.id };
                         if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
                         obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
                         return fn(null, user._id);
@@ -375,7 +375,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (user.name != username) {
                             user.name = username;
                             obj.db.SetUser(user);
-                            var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Changed account display name to ' + username, domain: domain.id };
+                            var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Changed account display name to ' + username, domain: domain.id };
                             if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
                             parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
                         }
@@ -495,7 +495,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         // Destroy the user's session to log them out will be re-created next request
         if (req.session.userid) {
             var user = obj.users[req.session.userid];
-            if (user != null) { obj.parent.DispatchEvent(['*'], obj, { etype: 'user', username: user.name, action: 'logout', msg: 'Account logout', domain: domain.id }); }
+            if (user != null) { obj.parent.DispatchEvent(['*'], obj, { etype: 'user', userid: user._id, username: user.name, action: 'logout', msg: 'Account logout', domain: domain.id }); }
         }
         req.session = null;
         res.redirect(domain.url);
@@ -590,7 +590,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 var yubikeyotp = require('yubikeyotp');
                 var request = { otp: token, id: domain.yubikey.id, key: domain.yubikey.secret, timestamp: true }
                 if (domain.yubikey.proxy) { request.requestParams = { proxy: domain.yubikey.proxy }; }
-                yubikeyotp.verifyOTP(request, function (err, results) { func(results.status == 'OK'); });
+                yubikeyotp.verifyOTP(request, function (err, results) { func((results != null) && (results.status == 'OK')); });
                 return;
             }
         }
@@ -697,7 +697,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
         // Notify account login
         var targets = ['*', 'server-users'];
         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
-        obj.parent.DispatchEvent(targets, obj, { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'login', msg: 'Account login', domain: domain.id });
+        obj.parent.DispatchEvent(targets, obj, { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msg: 'Account login', domain: domain.id });
 
         // Regenerate session when signing in to prevent fixation
         //req.session.regenerate(function () {
@@ -739,6 +739,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     function handleCreateAccountRequest(req, res) {
         const domain = checkUserIpAddress(req, res);
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap')) { res.sendStatus(404); return; }
+
+        // Always lowercase the email address
+        if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
 
         // If the email is the username, set this here.
         if (domain.usernameisemail) { req.body.username = req.body.email; }
@@ -821,7 +824,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                     // Send the verification email
                                     if ((obj.parent.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap') && (obj.common.validateEmail(user.email, 1, 256) == true)) { obj.parent.mailserver.sendAccountCheckMail(domain, user.name, user.email); }
                                 }, 0);
-                                var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, email is ' + req.body.email, domain: domain.id };
+                                var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, email is ' + req.body.email, domain: domain.id };
                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
                                 obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
                             }
@@ -883,7 +886,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                             user.passchange = Math.floor(Date.now() / 1000);
                             delete user.passtype;
                             obj.db.SetUser(user);
-                            var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'User password reset', domain: domain.id };
+                            var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'User password reset', domain: domain.id };
                             if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
                             obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
 
@@ -915,6 +918,9 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     function handleResetAccountRequest(req, res) {
         const domain = checkUserIpAddress(req, res);
         if ((domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (obj.args.lanonly == true) || (obj.parent.certificates.CommonName == null) || (obj.parent.certificates.CommonName.indexOf('.') == -1)) { res.sendStatus(404); return; }
+
+        // Always lowercase the email address
+        if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
 
         // Get the email from the body or session.
         var email = req.body.email;
@@ -1024,7 +1030,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                                 obj.db.SetUser(user);
 
                                                 // Event the change
-                                                var event = { etype: 'user', username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Verified email of user ' + EscapeHtml(user.name) + ' (' + EscapeHtml(user.email) + ')', domain: domain.id };
+                                                var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Verified email of user ' + EscapeHtml(user.name) + ' (' + EscapeHtml(user.email) + ')', domain: domain.id };
                                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
                                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
 
@@ -1059,7 +1065,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                                                 obj.db.SetUser(userinfo);
 
                                                 // Event the change
-                                                var event = { etype: 'user', username: userinfo.name, account: obj.CloneSafeUser(userinfo), action: 'accountchange', msg: 'Password reset for user ' + EscapeHtml(user.name), domain: domain.id };
+                                                var event = { etype: 'user', userid: user._id, username: userinfo.name, account: obj.CloneSafeUser(userinfo), action: 'accountchange', msg: 'Password reset for user ' + EscapeHtml(user.name), domain: domain.id };
                                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
                                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
 
@@ -1128,7 +1134,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                             if (mesh.links[userid] != null) { delete mesh.links[userid]; obj.db.Set(obj.common.escapeLinksFieldName(mesh)); }
                             // Notify mesh change
                             var change = 'Removed user ' + user.name + ' from group ' + mesh.name;
-                            obj.parent.DispatchEvent(['*', mesh._id, user._id, userid], obj, { etype: 'mesh', username: user.name, userid: userid, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: change, domain: domain.id });
+                            obj.parent.DispatchEvent(['*', mesh._id, user._id, userid], obj, { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: change, domain: domain.id });
                         }
                     }
                 }
@@ -1141,7 +1147,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 delete obj.users[user._id];
                 req.session = null;
                 res.redirect(domain.url + getQueryPortion(req));
-                obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', username: user.name, action: 'accountremove', msg: 'Account removed', domain: domain.id });
+                obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', userid: user._id, username: user.name, action: 'accountremove', msg: 'Account removed', domain: domain.id });
             } else {
                 res.redirect(domain.url + getQueryPortion(req));
             }
@@ -1200,7 +1206,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     obj.db.SetUser(user);
                     req.session.viewmode = 2;
                     res.redirect(domain.url + getQueryPortion(req));
-                    obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', username: user.name, action: 'passchange', msg: 'Account password changed: ' + user.name, domain: domain.id });
+                    obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', userid: user._id, username: user.name, action: 'passchange', msg: 'Account password changed: ' + user.name, domain: domain.id });
                 }, 0);
             }
         });
@@ -1285,7 +1291,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     if (usercount == 0) { user2.siteadmin = 4294967295; } // If this is the first user, give the account site admin.
                     obj.users[req.session.userid] = user2;
                     obj.db.SetUser(user2);
-                    var event = { etype: 'user', username: req.connection.user, account: obj.CloneSafeUser(user2), action: 'accountcreate', msg: 'Domain account created, user ' + req.connection.user, domain: domain.id };
+                    var event = { etype: 'user', userid: req.session.userid, username: req.connection.user, account: obj.CloneSafeUser(user2), action: 'accountcreate', msg: 'Domain account created, user ' + req.connection.user, domain: domain.id };
                     if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
                     obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
                 }
@@ -1727,7 +1733,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     }
 
     // Handle domain redirection
-    function handleDomainRedirect(req, res) {
+    obj.handleDomainRedirect = function(req, res) {
         const domain = checkUserIpAddress(req, res);
         if ((domain == null) || (domain.redirects == null)) { res.sendStatus(404); return; }
         var urlArgs = '', urlName = null, splitUrl = req.originalUrl.split("?");
@@ -1934,7 +1940,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             if (!state || state.connectivity == 0) { Debug(1, 'ERR: No routing possible (1)'); try { ws.close(); } catch (e) { } return; } else { conn = state.connectivity; }
 
             // Check what server needs to handle this connection
-            if ((obj.parent.multiServer != null) && (cookie == null)) { // If a cookie is provided, don't allow the connection to jump again to a different server
+            if ((obj.parent.multiServer != null) && ((cookie == null) || (cookie.ps != 1))) { // If a cookie is provided and is from a peer server, don't allow the connection to jump again to a different server
                 var server = obj.parent.GetRoutingServerId(req.query.host, 2); // Check for Intel CIRA connection
                 if (server != null) {
                     if (server.serverid != obj.parent.serverId) {
@@ -1951,6 +1957,28 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         obj.parent.multiServer.createPeerRelay(ws, req, server.serverid, user);
                         return;
                     }
+                }
+            }
+
+            // Setup session recording if needed
+            if (domain.sessionrecording == true || ((typeof domain.sessionrecording == 'object') && ((domain.sessionrecording.protocols == null) || (domain.sessionrecording.protocols.indexOf((req.query.p == 2) ? 101 : 100) >= 0)))) { // TODO 100
+                var now = new Date(Date.now());
+                var recFilename = 'relaysession' + ((domain.id == '') ? '' : '-') + domain.id + '-' + now.getUTCFullYear() + '-' + obj.common.zeroPad(now.getUTCMonth(), 2) + '-' + obj.common.zeroPad(now.getUTCDate(), 2) + '-' + obj.common.zeroPad(now.getUTCHours(), 2) + '-' + obj.common.zeroPad(now.getUTCMinutes(), 2) + '-' + obj.common.zeroPad(now.getUTCSeconds(), 2) + '-' + getRandomPassword() + '.mcrec'
+                var recFullFilename = null;
+                if (domain.sessionrecording.filepath) {
+                    try { obj.fs.mkdirSync(domain.sessionrecording.filepath); } catch (e) { }
+                    recFullFilename = obj.path.join(domain.sessionrecording.filepath, recFilename);
+                } else {
+                    try { obj.fs.mkdirSync(parent.recordpath); } catch (e) { }
+                    recFullFilename = obj.path.join(parent.recordpath, recFilename);
+                }
+                var fd = obj.fs.openSync(recFullFilename, 'w');
+                if (fd != null) {
+                    // Write the recording file header
+                    var firstBlock = JSON.stringify({ magic: 'MeshCentralRelaySession', ver: 1, userid: user._id, username: user.name, ipaddr: cleanRemoteAddr(ws._socket.remoteAddress), nodeid: node._id, intelamt: true, protocol: (req.query.p == 2) ? 101 : 100, time: new Date().toLocaleString() })
+                    recordingEntry(fd, 1, 0, firstBlock, function () { });
+                    ws.logfile = { fd: fd, lock: false };
+                    if (req.query.p == 2) { ws.send(Buffer.from(String.fromCharCode(0xF0), 'binary')); } // Intel AMT Redirection: Indicate the session is being recorded
                 }
             }
 
@@ -1972,7 +2000,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     var ser = new SerialTunnel();
                     var chnl = parent.mpsserver.SetupCiraChannel(ciraconn, port);
 
-                    // let's chain up the TLSSocket <-> SerialTunnel <-> CIRA APF (chnl)
+                    // Let's chain up the TLSSocket <-> SerialTunnel <-> CIRA APF (chnl)
                     // Anything that needs to be forwarded by SerialTunnel will be encapsulated by chnl write
                     ser.forwardwrite = function (msg) {
                         // TLS ---> CIRA
@@ -2027,7 +2055,16 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     msg = msg.toString('binary');
                     if (ws.interceptor) { msg = ws.interceptor.processBrowserData(msg); } // Run data thru interceptor
                     //console.log('WS --> AMT', Buffer.from(msg, 'binary').toString('hex'));
-                    if (ws.forwardclient.xtls == 1) { ws.forwardclient.write(Buffer.from(msg, 'binary')); } else { ws.forwardclient.write(msg); }
+
+                    // Log to recording file
+                    if (ws.logfile == null) {
+                        // Forward data to the associated TCP connection.
+                        if (ws.forwardclient.xtls == 1) { ws.forwardclient.write(Buffer.from(msg, 'binary')); } else { ws.forwardclient.write(msg); }
+                    } else {
+                        // Log to recording file
+                        var msg2 = Buffer.from(msg, 'binary');
+                        recordingEntry(ws.logfile.fd, 2, 2, msg2, function () { try { if (ws.forwardclient.xtls == 1) { ws.forwardclient.write(msg2); } else { ws.forwardclient.write(msg); } } catch (ex) { } });
+                    }
                 });
 
                 // If error, close the associated TCP connection.
@@ -2035,12 +2072,28 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     console.log('CIRA server websocket error from ' + ws._socket.remoteAddress + ', ' + err.toString().split('\r')[0] + '.');
                     Debug(1, 'Websocket relay closed on error.');
                     if (ws.forwardclient && ws.forwardclient.close) { ws.forwardclient.close(); } // TODO: If TLS is used, we need to close the socket that is wrapped by TLS
+
+                    // Close the recording file
+                    if (ws.logfile != null) {
+                        recordingEntry(ws.logfile.fd, 3, 0, 'MeshCentralMCREC', function (fd, ws) {
+                            obj.fs.close(fd);
+                            ws.logfile = null;
+                        }, ws);
+                    }
                 });
 
                 // If the web socket is closed, close the associated TCP connection.
                 ws.on('close', function (req) {
                     Debug(1, 'Websocket relay closed.');
                     if (ws.forwardclient && ws.forwardclient.close) { ws.forwardclient.close(); } // TODO: If TLS is used, we need to close the socket that is wrapped by TLS
+
+                    // Close the recording file
+                    if (ws.logfile != null) {
+                        recordingEntry(ws.logfile.fd, 3, 0, 'MeshCentralMCREC', function (fd, ws) {
+                            obj.fs.close(fd);
+                            ws.logfile = null;
+                        }, ws);
+                    }
                 });
 
                 ws.forwardclient.onStateChange = function (ciraconn, state) {
@@ -2052,7 +2105,15 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     Debug(4, 'Relay CIRA data', data.length);
                     if (ws.interceptor) { data = ws.interceptor.processAmtData(data); } // Run data thru interceptor
                     //console.log('AMT --> WS', Buffer.from(data, 'binary').toString('hex'));
-                    if (data.length > 0) { try { ws.send(Buffer.from(data, 'binary')); } catch (e) { } } // TODO: Add TLS support
+                    if (data.length > 0) {
+                        if (ws.logfile == null) {
+                            try { ws.send(Buffer.from(data, 'binary')); } catch (e) { } // TODO: Add TLS support
+                        } else {
+                            // Log to recording file
+                            data = Buffer.from(data, 'binary');
+                            recordingEntry(ws.logfile.fd, 2, 2, data, function () { try { ws.send(data); } catch (e) { } }); // TODO: Add TLS support
+                        }
+                    } 
                 };
 
                 ws.forwardclient.onSendOk = function (ciraconn) {
@@ -2087,7 +2148,16 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     }
                     msg = msg.toString('binary');
                     if (ws.interceptor) { msg = ws.interceptor.processBrowserData(msg); } // Run data thru interceptor
-                    ws.forwardclient.write(Buffer.from(msg, 'binary')); // Forward data to the associated TCP connection.
+
+                    // Log to recording file
+                    if (ws.logfile == null) {
+                        // Forward data to the associated TCP connection.
+                        try { ws.forwardclient.write(Buffer.from(msg, 'binary')); } catch (ex) { }
+                    } else {
+                        // Log to recording file
+                        msg = Buffer.from(msg, 'binary');
+                        recordingEntry(ws.logfile.fd, 2, 2, msg, function () { try { ws.forwardclient.write(msg); } catch (ex) { } });
+                    }
                 });
 
                 // If error, close the associated TCP connection.
@@ -2095,12 +2165,28 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                     console.log('Error with relay web socket connection from ' + ws._socket.remoteAddress + ', ' + err.toString().split('\r')[0] + '.');
                     Debug(1, 'Error with relay web socket connection from ' + ws._socket.remoteAddress + '.');
                     if (ws.forwardclient) { try { ws.forwardclient.destroy(); } catch (e) { } }
+
+                    // Close the recording file
+                    if (ws.logfile != null) {
+                        recordingEntry(ws.logfile.fd, 3, 0, 'MeshCentralMCREC', function (fd) {
+                            obj.fs.close(fd);
+                            ws.logfile = null;
+                        });
+                    }
                 });
 
                 // If the web socket is closed, close the associated TCP connection.
                 ws.on('close', function () {
                     Debug(1, 'Closing relay web socket connection to ' + req.query.host + '.');
                     if (ws.forwardclient) { try { ws.forwardclient.destroy(); } catch (e) { } }
+
+                    // Close the recording file
+                    if (ws.logfile != null) {
+                        recordingEntry(ws.logfile.fd, 3, 0, 'MeshCentralMCREC', function (fd) {
+                            obj.fs.close(fd);
+                            ws.logfile = null;
+                        });
+                    }
                 });
 
                 // Compute target port
@@ -2136,7 +2222,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                         if (obj.parent.debugLevel >= 4) { Debug(4, '  ' + Buffer.from(data, 'binary').toString('hex')); }
                     }
                     if (ws.interceptor) { data = ws.interceptor.processAmtData(data); } // Run data thru interceptor
-                    try { ws.send(Buffer.from(data, 'binary')); } catch (e) { }
+                    if (ws.logfile == null) {
+                        // No logging
+                        try { ws.send(Buffer.from(data, 'binary')); } catch (e) { }
+                    } else {
+                        // Log to recording file
+                        data = Buffer.from(data, 'binary');
+                        recordingEntry(ws.logfile.fd, 2, 0, data, function () { try { ws.send(data); } catch (e) { } });
+                    }
                 });
 
                 // If the TCP connection closes, disconnect the associated web socket.
@@ -2969,7 +3062,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             obj.app.ws(url + 'amtactivate', handleAmtActivateWebSocket);
 
             // Server redirects
-            if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { if (j[0] != '_') { obj.app.get(url + j, handleDomainRedirect); } } }
+            if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { if (j[0] != '_') { obj.app.get(url + j, obj.handleDomainRedirect); } } }
 
             // Server picture
             obj.app.get(url + 'serverpic.ashx', function (req, res) {
@@ -3034,6 +3127,14 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             // Indicates to ExpressJS that the public folder should be used to serve static files.
             obj.app.use(url, obj.express.static(obj.parent.webPublicPath));
 
+/*
+            // Handle 404 error
+            obj.app.use(function (req, res, next) {
+                var domain = getDomain(req);
+                res.status(404).render(obj.path.join(obj.parent.webViewsPath, isMobileBrowser(req) ? 'error404-mobile' : 'error404'), { title: domain.title, title2: domain.title2 });
+            });
+*/
+
             // Start regular disconnection list flush every 2 minutes.
             obj.wsagentsDisconnectionsTimer = setInterval(function () { obj.wsagentsDisconnections = {}; }, 120000);
         }
@@ -3093,6 +3194,7 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             } else if ((req.query.auth != null) && (req.query.auth != '')) {
                 // This is a encrypted cookie authentication
                 var cookie = obj.parent.decodeCookie(req.query.auth, obj.parent.loginCookieEncryptionKey, 240); // Cookie with 4 hour timeout
+                if ((cookie == null) && (obj.parent.multiServer != null)) { cookie = obj.parent.decodeCookie(req.query.auth, obj.parent.serverKey, 240); } // Try the server key
                 if ((cookie != null) && (obj.users[cookie.userid]) && (cookie.domainid == domain.id)) {
                     // Valid cookie, we are authenticated
                     func(ws, req, domain, obj.users[cookie.userid], cookie);
@@ -3301,11 +3403,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 if (oldcount == null) { oldcount = 0; } else { delete obj.sessionsCount[userid]; }
                 if (newcount != oldcount) {
                     x = userid.split('/');
-                    var u = users[userid];
+                    var u = obj.users[userid];
                     if (u) {
                         var targets = ['*', 'server-users'];
                         if (u.groups) { for (var i in u.groups) { targets.push('server-users:' + i); } }
-                        obj.parent.DispatchEvent(targets, obj, { action: 'wssessioncount', username: x[2], count: newcount, domain: x[1], nolog: 1, nopeers: 1 });
+                        obj.parent.DispatchEvent(targets, obj, { action: 'wssessioncount', userid: userid, username: x[2], count: newcount, domain: x[1], nolog: 1, nopeers: 1 });
                     }
                 }
             }
@@ -3315,11 +3417,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
                 oldcount = obj.sessionsCount[userid];
                 if ((oldcount != null) && (oldcount != 0)) {
                     x = userid.split('/');
-                    var u = users[userid];
+                    var u = obj.users[userid];
                     if (u) {
                         var targets = ['*', 'server-users'];
                         if (u.groups) { for (var i in u.groups) { targets.push('server-users:' + i); } }
-                        obj.parent.DispatchEvent(['*'], obj, { action: 'wssessioncount', username: x[2], count: 0, domain: x[1], nolog: 1, nopeers: 1 })
+                        obj.parent.DispatchEvent(['*'], obj, { action: 'wssessioncount', userid: userid, username: x[2], count: 0, domain: x[1], nolog: 1, nopeers: 1 })
                     }
                 }
             }
@@ -3340,11 +3442,11 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
             // If the count changed, update and event
             if (newcount != oldcount) {
                 x = userid.split('/');
-                var u = users[userid];
+                var u = obj.users[userid];
                 if (u) {
                     var targets = ['*', 'server-users'];
                     if (u.groups) { for (var i in u.groups) { targets.push('server-users:' + i); } }
-                    obj.parent.DispatchEvent(targets, obj, { action: 'wssessioncount', username: x[2], count: newcount, domain: x[1], nolog: 1, nopeers: 1 });
+                    obj.parent.DispatchEvent(targets, obj, { action: 'wssessioncount', userid: userid, username: x[2], count: newcount, domain: x[1], nolog: 1, nopeers: 1 });
                     obj.sessionsCount[userid] = newcount;
                 }
             }
@@ -3383,6 +3485,35 @@ module.exports.CreateWebServer = function (parent, db, args, certificates) {
     // Generate a random Intel AMT password
     function checkAmtPassword(p) { return (p.length > 7) && (/\d/.test(p)) && (/[a-z]/.test(p)) && (/[A-Z]/.test(p)) && (/\W/.test(p)); }
     function getRandomAmtPassword() { var p; do { p = Buffer.from(obj.crypto.randomBytes(9), 'binary').toString('base64').split('/').join('@'); } while (checkAmtPassword(p) == false); return p; }
+    function getRandomPassword() { return Buffer.from(obj.crypto.randomBytes(9), 'binary').toString('base64').split('/').join('@'); }
+
+    // Clean a IPv6 address that encodes a IPv4 address
+    function cleanRemoteAddr(addr) { if (addr.startsWith('::ffff:')) { return addr.substring(7); } else { return addr; } }
+
+    // Record a new entry in a recording log
+    function recordingEntry(fd, type, flags, data, func, tag) {
+        try {
+            if (typeof data == 'string') {
+                // String write
+                var blockData = Buffer.from(data), header = Buffer.alloc(16); // Header: Type (2) + Flags (2) + Size(4) + Time(8)
+                header.writeInt16BE(type, 0); // Type (1 = Header, 2 = Network Data)
+                header.writeInt16BE(flags, 2); // Flags (1 = Binary, 2 = User)
+                header.writeInt32BE(blockData.length, 4); // Size
+                header.writeIntBE(new Date(), 10, 6); // Time
+                var block = Buffer.concat([header, blockData]);
+                obj.fs.write(fd, block, 0, block.length, function () { func(fd, tag); });
+            } else {
+                // Binary write
+                var header = Buffer.alloc(16); // Header: Type (2) + Flags (2) + Size(4) + Time(8)
+                header.writeInt16BE(type, 0); // Type (1 = Header, 2 = Network Data)
+                header.writeInt16BE(flags | 1, 2); // Flags (1 = Binary, 2 = User)
+                header.writeInt32BE(data.length, 4); // Size
+                header.writeIntBE(new Date(), 10, 6); // Time
+                var block = Buffer.concat([header, data]);
+                obj.fs.write(fd, block, 0, block.length, function () { func(fd, tag); });
+            }
+        } catch (ex) { console.log(ex); func(fd, tag); }
+    }
 
     return obj;
 };

@@ -86,16 +86,27 @@ module.exports.CreateRedirServer = function (parent, db, args, func) {
             obj.app.post(url + "amtevents.ashx", obj.parent.webserver.handleAmtEventRequest);
             obj.app.get(url + "meshsettings", obj.parent.webserver.handleMeshSettingsRequest);
             obj.app.get(url + "meshagents", obj.parent.webserver.handleMeshAgentRequest);
+
+            // Server redirects
+            if (parent.config.domains[i].redirects) {
+                for (var j in parent.config.domains[i].redirects) {
+                    if (j[0] != '_') { obj.app.get(url + j, obj.parent.webserver.handleDomainRedirect); }
+                }
+            }
         }
-    };
+    }
 
     // Setup all HTTP redirection handlers
     //obj.app.set("etag", false);
     for (var i in parent.config.domains) {
         if (parent.config.domains[i].dns != null) { continue; }
         var url = parent.config.domains[i].url;
-        obj.app.get(url, performRedirection);
+        obj.app.get(url, performRedirection); // Root redirection
         obj.app.use(url + "clickonce", obj.express.static(obj.parent.path.join(__dirname, "public/clickonce"))); // Indicates the clickonce folder is public
+
+        // Setup all of the redirections to HTTPS
+        const redirections = ['terms', 'logout', 'MeshServerRootCert.cer', 'mescript.ashx', 'checkmail', 'agentinvite', 'messenger', 'meshosxagent', 'devicepowerevents.ashx', 'downloadfile.ashx', 'userfiles/*', 'webrelay.ashx', 'health.ashx', 'logo.png', 'welcome.jpg'];
+        for (i in redirections) { obj.app.get(url + redirections[i], performRedirection); }
     }
 
     // Find a free port starting with the specified one and going up.

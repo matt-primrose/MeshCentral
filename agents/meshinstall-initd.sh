@@ -20,7 +20,8 @@ start() {
     return 1
   fi
   echo 'Starting service…' >&2
-  local CMD="$SCRIPT &> \"$LOGFILE\" & echo \$!"
+  local CMD="$SCRIPT -exec \"var child; process.on('SIGTERM', function () { child.removeAllListeners('exit'); child.kill(); process.exit(); }); function start() { child = require('child_process').execFile(process.execPath, [process.argv0, \"\"]); child.stdout.on('data', function (c) { }); child.stderr.on('data', function (c) { }); child.on('exit', function (status) { start(); }); } start();\" &> \"$LOGFILE\" & echo \$!"
+
   cd /usr/local/mesh
   su -c "$CMD" $RUNAS > "$PIDFILE"
   echo 'Service started' >&2
@@ -34,7 +35,7 @@ stop() {
     pid=$( cat "$PIDFILE" )
     if kill -0 $pid 2>/dev/null; then
           echo 'Stopping service…' >&2
-          kill -16 $pid
+          kill -15 $pid
           echo 'Service stopped' >&2
     else
       echo 'Service not running'

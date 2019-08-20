@@ -71,6 +71,7 @@ function CreateMeshCentralServer(config, args) {
         obj.datapath = obj.path.join(__dirname, '../../meshcentral-data');
         obj.filespath = obj.path.join(__dirname, '../../meshcentral-files');
         obj.backuppath = obj.path.join(__dirname, '../../meshcentral-backup');
+        obj.recordpath = obj.path.join(__dirname, '../../meshcentral-recordings');
         if (obj.fs.existsSync(obj.path.join(__dirname, '../../meshcentral-web/views'))) { obj.webViewsPath = obj.path.join(__dirname, '../../meshcentral-web/views'); } else { obj.webViewsPath = obj.path.join(__dirname, 'views'); }
         if (obj.fs.existsSync(obj.path.join(__dirname, '../../meshcentral-web/public'))) { obj.webPublicPath = obj.path.join(__dirname, '../../meshcentral-web/public'); } else { obj.webPublicPath = obj.path.join(__dirname, 'public'); }
     } else {
@@ -78,9 +79,14 @@ function CreateMeshCentralServer(config, args) {
         obj.datapath = obj.path.join(__dirname, '../meshcentral-data');
         obj.filespath = obj.path.join(__dirname, '../meshcentral-files');
         obj.backuppath = obj.path.join(__dirname, '../meshcentral-backups');
+        obj.recordpath = obj.path.join(__dirname, '../meshcentral-recordings');
         if (obj.fs.existsSync(obj.path.join(__dirname, '../meshcentral-web/views'))) { obj.webViewsPath = obj.path.join(__dirname, '../meshcentral-web/views'); } else { obj.webViewsPath = obj.path.join(__dirname, 'views'); }
         if (obj.fs.existsSync(obj.path.join(__dirname, '../meshcentral-web/public'))) { obj.webPublicPath = obj.path.join(__dirname, '../meshcentral-web/public'); } else { obj.webPublicPath = obj.path.join(__dirname, 'public'); }
     }
+
+    // Look to see if data and/or file path is specified
+    if (obj.args.datapath) { obj.datapath = obj.args.datapath; }
+    if (obj.args.filespath) { obj.filespath = obj.args.filespath; }
 
     // Create data and files folders if needed
     try { obj.fs.mkdirSync(obj.datapath); } catch (e) { }
@@ -102,7 +108,7 @@ function CreateMeshCentralServer(config, args) {
         try { require('./pass').hash('test', function () { }, 0); } catch (e) { console.log('Old version of node, must upgrade.'); return; } // TODO: Not sure if this test works or not.
 
         // Check for invalid arguments
-        var validArguments = ['_', 'notls', 'user', 'port', 'aliasport', 'mpsport', 'mpsaliasport', 'redirport', 'cert', 'mpscert', 'deletedomain', 'deletedefaultdomain', 'showall', 'showusers', 'shownodes', 'showmeshes', 'showevents', 'showpower', 'clearpower', 'showiplocations', 'help', 'exactports', 'install', 'uninstall', 'start', 'stop', 'restart', 'debug', 'filespath', 'datapath', 'noagentupdate', 'launch', 'noserverbackup', 'mongodb', 'mongodbcol', 'wanonly', 'lanonly', 'nousers', 'mpsdebug', 'mpspass', 'ciralocalfqdn', 'dbexport', 'dbexportmin', 'dbimport', 'dbmerge', 'dbencryptkey', 'selfupdate', 'tlsoffload', 'userallowedip', 'userblockedip', 'swarmallowedip', 'agentallowedip', 'agentblockedip', 'fastcert', 'swarmport', 'swarmdebug', 'logintoken', 'logintokenkey', 'logintokengen', 'logintokengen', 'mailtokengen', 'admin', 'unadmin', 'sessionkey', 'sessiontime', 'minify', 'minifycore', 'dblistconfigfiles', 'dbshowconfigfile', 'dbpushconfigfiles', 'dbpullconfigfiles', 'dbdeleteconfigfiles', 'configkey', 'loadconfigfromdb', 'npmpath', 'memorytracking'];
+        var validArguments = ['_', 'notls', 'user', 'port', 'aliasport', 'mpsport', 'mpsaliasport', 'redirport', 'cert', 'mpscert', 'deletedomain', 'deletedefaultdomain', 'showall', 'showusers', 'shownodes', 'showmeshes', 'showevents', 'showpower', 'clearpower', 'showiplocations', 'help', 'exactports', 'install', 'uninstall', 'start', 'stop', 'restart', 'debug', 'filespath', 'datapath', 'noagentupdate', 'launch', 'noserverbackup', 'mongodb', 'mongodbcol', 'wanonly', 'lanonly', 'nousers', 'mpsdebug', 'mpspass', 'ciralocalfqdn', 'dbexport', 'dbexportmin', 'dbimport', 'dbmerge', 'dbencryptkey', 'selfupdate', 'tlsoffload', 'userallowedip', 'userblockedip', 'swarmallowedip', 'agentallowedip', 'agentblockedip', 'fastcert', 'swarmport', 'swarmdebug', 'logintoken', 'logintokenkey', 'logintokengen', 'logintokengen', 'mailtokengen', 'admin', 'unadmin', 'sessionkey', 'sessiontime', 'minify', 'minifycore', 'dblistconfigfiles', 'dbshowconfigfile', 'dbpushconfigfiles', 'dbpullconfigfiles', 'dbdeleteconfigfiles', 'configkey', 'loadconfigfromdb', 'npmpath', 'memorytracking', 'serverid'];
         for (var arg in obj.args) { obj.args[arg.toLocaleLowerCase()] = obj.args[arg]; if (validArguments.indexOf(arg.toLocaleLowerCase()) == -1) { console.log('Invalid argument "' + arg + '", use --help.'); return; } }
         if (obj.args.mongodb == true) { console.log('Must specify: --mongodb [connectionstring] \r\nSee https://docs.mongodb.com/manual/reference/connection-string/ for MongoDB connection string.'); return; }
         for (i in obj.config.settings) { obj.args[i] = obj.config.settings[i]; } // Place all settings into arguments, arguments have already been placed into settings so arguments take precedence.
@@ -149,53 +155,54 @@ function CreateMeshCentralServer(config, args) {
         }
 
         // If "--launch" is in the arguments, launch now
-        if (obj.args.launch == 1) {
+        if (obj.args.launch) {
             obj.StartEx();
         } else {
             // if "--launch" is not specified, launch the server as a child process.
-            var startLine = '';
+            var startArgs = [];
             for (i in process.argv) {
-                var arg = process.argv[i];
-                if (arg.length > 0) {
-                    if (startLine.length > 0) startLine += ' ';
-                    if ((arg.indexOf(' ') >= 0) || (arg.indexOf('&') >= 0)) { startLine += '"' + arg + '"'; } else { startLine += arg; }
+                if (i > 0) {
+                    var arg = process.argv[i];
+                    if ((arg.length > 0) && ((arg.indexOf(' ') >= 0) || (arg.indexOf('&') >= 0))) { startArgs.push(arg); } else { startArgs.push(arg); }
                 }
             }
-            obj.launchChildServer(startLine);
+            startArgs.push('--launch', process.pid);
+            obj.launchChildServer(startArgs);
         }
     };
 
     // Launch MeshCentral as a child server and monitor it.
-    obj.launchChildServer = function (startLine) {
+    obj.launchChildServer = function (startArgs) {
         var child_process = require('child_process');
-        var xprocess = child_process.exec(startLine + ' --launch', { maxBuffer: Infinity, cwd: obj.parentpath }, function (error, stdout, stderr) {
-            if (xprocess.xrestart == 1) {
-                setTimeout(function () { obj.launchChildServer(startLine); }, 500); // This is an expected restart.
-            } else if (xprocess.xrestart == 2) {
+        childProcess = child_process.execFile(process.argv[0], startArgs, { maxBuffer: Infinity, cwd: obj.parentpath }, function (error, stdout, stderr) {
+            if (childProcess.xrestart == 1) {
+                setTimeout(function () { obj.launchChildServer(startArgs); }, 500); // This is an expected restart.
+            } else if (childProcess.xrestart == 2) {
                 console.log('Expected exit...');
                 process.exit(); // User CTRL-C exit.
-            } else if (xprocess.xrestart == 3) {
+            } else if (childProcess.xrestart == 3) {
                 // Server self-update exit
                 var version = '';
                 if (typeof obj.args.selfupdate == 'string') { version = '@' + obj.args.selfupdate; }
                 var child_process = require('child_process');
                 var npmpath = ((typeof obj.args.npmpath == 'string') ? obj.args.npmpath : 'npm');
-                var xxprocess = child_process.exec(npmpath + ' install meshcentral' + version, { maxBuffer: Infinity, cwd: obj.parentpath }, function (error, stdout, stderr) { });
+                var npmproxy = ((typeof obj.args.npmproxy == 'string') ? (' --proxy ' + obj.args.npmproxy) : '');
+                var xxprocess = child_process.exec(npmpath + ' install meshcentral' + version + npmproxy, { maxBuffer: Infinity, cwd: obj.parentpath }, function (error, stdout, stderr) { });
                 xxprocess.data = '';
                 xxprocess.stdout.on('data', function (data) { xxprocess.data += data; });
                 xxprocess.stderr.on('data', function (data) { xxprocess.data += data; });
-                xxprocess.on('close', function (code) { console.log('Update completed...'); setTimeout(function () { obj.launchChildServer(startLine); }, 1000); });
+                xxprocess.on('close', function (code) { console.log('Update completed...'); setTimeout(function () { obj.launchChildServer(startArgs); }, 1000); });
             } else {
                 if (error != null) {
                     // This is an un-expected restart
                     console.log(error);
                     console.log('ERROR: MeshCentral failed with critical error, check MeshErrors.txt. Restarting in 5 seconds...');
-                    setTimeout(function () { obj.launchChildServer(startLine); }, 5000);
+                    setTimeout(function () { obj.launchChildServer(startArgs); }, 5000);
                 }
             }
         });
-        xprocess.stdout.on('data', function (data) { if (data[data.length - 1] == '\n') { data = data.substring(0, data.length - 1); } if (data.indexOf('Updating settings folder...') >= 0) { xprocess.xrestart = 1; } else if (data.indexOf('Updating server certificates...') >= 0) { xprocess.xrestart = 1; } else if (data.indexOf('Server Ctrl-C exit...') >= 0) { xprocess.xrestart = 2; } else if (data.indexOf('Starting self upgrade...') >= 0) { xprocess.xrestart = 3; } else if (data.indexOf('Server restart...') >= 0) { xprocess.xrestart = 1; } console.log(data); });
-        xprocess.stderr.on('data', function (data) {
+        childProcess.stdout.on('data', function (data) { if (data[data.length - 1] == '\n') { data = data.substring(0, data.length - 1); } if (data.indexOf('Updating settings folder...') >= 0) { childProcess.xrestart = 1; } else if (data.indexOf('Updating server certificates...') >= 0) { childProcess.xrestart = 1; } else if (data.indexOf('Server Ctrl-C exit...') >= 0) { childProcess.xrestart = 2; } else if (data.indexOf('Starting self upgrade...') >= 0) { childProcess.xrestart = 3; } else if (data.indexOf('Server restart...') >= 0) { childProcess.xrestart = 1; } console.log(data); });
+        childProcess.stderr.on('data', function (data) {
             if (data.startsWith('le.challenges[tls-sni-01].loopback')) { return; } // Ignore this error output from GreenLock
             if (data[data.length - 1] == '\n') { data = data.substring(0, data.length - 1); }
             try {
@@ -204,7 +211,7 @@ function CreateMeshCentralServer(config, args) {
                 obj.fs.appendFileSync(obj.getConfigFilePath('mesherrors.txt'), '-------- ' + new Date().toLocaleString() + ' ---- ' + obj.currentVer + ' --------\r\n\r\n' + data + '\r\n\r\n\r\n');
             } catch (ex) { console.log('ERROR: Unable to write to mesherrors.txt.'); }
         });
-        xprocess.on('close', function (code) { if ((code != 0) && (code != 123)) { /* console.log("Exited with code " + code); */ } });
+        childProcess.on('close', function (code) { if ((code != 0) && (code != 123)) { /* console.log("Exited with code " + code); */ } });
     };
 
     // Get current and latest MeshCentral server versions using NPM
@@ -214,20 +221,24 @@ function CreateMeshCentralServer(config, args) {
             if (typeof obj.args.selfupdate == 'string') { callback(obj.currentVer, obj.args.selfupdate); return; } // If we are targetting a specific version, return that one as current.
             var child_process = require('child_process');
             var npmpath = ((typeof obj.args.npmpath == 'string') ? obj.args.npmpath : 'npm');
-            var xprocess = child_process.exec(npmpath + ' view meshcentral dist-tags.latest', { maxBuffer: 512000, cwd: obj.parentpath }, function (error, stdout, stderr) { });
-            xprocess.data = '';
-            xprocess.stdout.on('data', function (data) { xprocess.data += data; });
-            xprocess.stderr.on('data', function (data) { });
-            xprocess.on('close', function (code) {
+            var npmproxy = ((typeof obj.args.npmproxy == 'string') ? (' --proxy ' + obj.args.npmproxy) : '');
+            var xxprocess = child_process.exec(npmpath + npmproxy + ' view meshcentral dist-tags.latest', { maxBuffer: 512000, cwd: obj.parentpath }, function (error, stdout, stderr) { });
+            xxprocess.data = '';
+            xxprocess.stdout.on('data', function (data) { xxprocess.data += data; });
+            xxprocess.stderr.on('data', function (data) { });
+            xxprocess.on('close', function (code) {
                 var latestVer = null;
-                if (code == 0) { try { latestVer = xprocess.data.split(' ').join('').split('\r').join('').split('\n').join(''); } catch (e) { } }
+                if (code == 0) { try { latestVer = xxprocess.data.split(' ').join('').split('\r').join('').split('\n').join(''); } catch (e) { } }
                 callback(obj.currentVer, latestVer);
             });
         } catch (ex) { callback(obj.currentVer, null, ex); } // If the system is running out of memory, an exception here can easily happen.
     };
 
     // Initiate server self-update
-    obj.performServerUpdate = function () { console.log('Starting self upgrade...'); process.exit(200); };
+    obj.performServerUpdate = function () {
+        if (obj.serverSelfWriteAllowed == true) { console.log('Starting self upgrade...'); process.exit(200); return true; }
+        return false;
+    };
 
     // Initiate server self-update
     obj.performServerCertUpdate = function () { console.log('Updating server certificates...'); process.exit(200); };
@@ -516,18 +527,23 @@ function CreateMeshCentralServer(config, args) {
         );
     };
 
-    // Time to start the server or real.
+    // Time to start the server of real.
     obj.StartEx1b = function () {
         var i;
 
+        // Check if self update is allowed. If running as a Windows service, self-update is not possible.
+        if (obj.fs.existsSync(obj.path.join(__dirname, 'daemon'))) { obj.serverSelfWriteAllowed = false; }
+
         // If we are targetting a specific version, update now.
-        if (typeof obj.args.selfupdate == 'string') {
+        if ((obj.serverSelfWriteAllowed == true) && (typeof obj.args.selfupdate == 'string')) {
             obj.args.selfupdate = obj.args.selfupdate.toLowerCase();
             if (obj.currentVer !== obj.args.selfupdate) { obj.performServerUpdate(); return; } // We are targetting a specific version, run self update now.
         }
 
         // Write the server state
         obj.updateServerState('state', 'starting');
+        if (process.pid) { obj.updateServerState('server-pid', process.pid); }
+        if (process.ppid) { obj.updateServerState('server-parent-pid', process.ppid); }
 
         // Start memory tracking if requested
         if (typeof obj.args.memorytracking == 'number') {
@@ -542,10 +558,6 @@ function CreateMeshCentralServer(config, args) {
                 obj.fs.appendFile(obj.getConfigFilePath('memorytracking.csv'), txt.join(',') + '\r\n', function (err) { });
             }, (obj.args.memorytracking * 1000));
         }
-
-        // Look to see if data and/or file path is specified
-        if (obj.args.datapath) { obj.datapath = obj.args.datapath; }
-        if (obj.args.filespath) { obj.filespath = obj.args.filespath; }
 
         // Read environment variables. For a subset of arguments, we allow them to be read from environment variables.
         var xenv = ['user', 'port', 'mpsport', 'mpsaliasport', 'redirport', 'exactport', 'debug'];
@@ -786,6 +798,7 @@ function CreateMeshCentralServer(config, args) {
                 // Setup Mesh Multi-Server if needed
                 obj.multiServer = require('./multiserver.js').CreateMultiServer(obj, obj.args);
                 if (obj.multiServer != null) {
+                    if ((obj.db.databaseType != 3) || (obj.db.changeStream != true)) { console.log("ERROR: Multi-server support requires use of MongoDB with ReplicaSet and ChangeStream enabled."); process.exit(0); return; }
                     obj.serverId = obj.multiServer.serverid;
                     for (var serverid in obj.config.peers.servers) { obj.peerConnectivityByNode[serverid] = {}; }
                 }
@@ -1387,7 +1400,8 @@ function CreateMeshCentralServer(config, args) {
     // List of possible mesh agent install scripts
     var meshAgentsInstallScriptList = {
         1: { id: 1, localname: 'meshinstall-linux.sh', rname: 'meshinstall.sh', linux: true },
-        2: { id: 2, localname: 'meshinstall-initd.sh', rname: 'meshagent', linux: true }
+        2: { id: 2, localname: 'meshinstall-initd.sh', rname: 'meshagent', linux: true },
+        5: { id: 5, localname: 'meshinstall-bsd-rcd.sh', rname: 'meshagent', linux: true }
     };
 
     // Update the list of available mesh agents
@@ -1427,10 +1441,10 @@ function CreateMeshCentralServer(config, args) {
     // List of possible mesh agents
     obj.meshAgentsArchitectureNumbers = {
         0: { id: 0, localname: 'Unknown', rname: 'meshconsole.exe', desc: 'Unknown agent', update: false, amt: true, platform: 'unknown', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
-        1: { id: 1, localname: 'MeshConsole.exe', rname: 'meshconsole.exe', desc: 'Windows x86-32 console', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
-        2: { id: 2, localname: 'MeshConsole64.exe', rname: 'meshconsole.exe', desc: 'Windows x86-64 console', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
-        3: { id: 3, localname: 'MeshService-signed.exe', rname: 'meshagent.exe', desc: 'Windows x86-32 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
-        4: { id: 4, localname: 'MeshService64-signed.exe', rname: 'meshagent.exe', desc: 'Windows x86-64 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
+        1: { id: 1, localname: 'MeshConsole.exe', rname: 'meshconsole32.exe', desc: 'Windows x86-32 console', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
+        2: { id: 2, localname: 'MeshConsole64.exe', rname: 'meshconsole64.exe', desc: 'Windows x86-64 console', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
+        3: { id: 3, localname: 'MeshService-signed.exe', rname: 'meshagent32.exe', desc: 'Windows x86-32 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
+        4: { id: 4, localname: 'MeshService64-signed.exe', rname: 'meshagent64.exe', desc: 'Windows x86-64 service', update: true, amt: true, platform: 'win32', core: 'windows-amt', rcore: 'windows-recovery', arcore: 'windows-agentrecovery' },
         5: { id: 5, localname: 'meshagent_x86', rname: 'meshagent', desc: 'Linux x86-32', update: true, amt: true, platform: 'linux', core: 'linux-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
         6: { id: 6, localname: 'meshagent_x86-64', rname: 'meshagent', desc: 'Linux x86-64', update: true, amt: true, platform: 'linux', core: 'linux-amt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
         7: { id: 7, localname: 'meshagent_mips', rname: 'meshagent', desc: 'Linux MIPS', update: true, amt: false, platform: 'linux', core: 'linux-noamt', rcore: 'linux-recovery', arcore: 'linux-agentrecovery' },
@@ -1745,6 +1759,7 @@ process.on('SIGINT', function () { if (meshserver != null) { meshserver.Stop(); 
 
 // Load the really basic modules
 var meshserver = null;
+var childProcess = null;
 var previouslyInstalledModules = { };
 function mainStart() {
     // Check the NodeJS is version 6 or better.
@@ -1802,6 +1817,17 @@ function mainStart() {
         
         // Install any missing modules and launch the server
         InstallModules(modules, function () { meshserver = CreateMeshCentralServer(config, args); meshserver.Start(); });
+
+        // On exit, also terminate the child process if applicable
+        process.on("exit", function () { if (childProcess) { childProcess.kill(); childProcess = null; } });
+
+        // If our parent exits, we also exit
+        if (args.launch) {
+            process.stderr.on('end', function () { process.exit(); });
+            process.stdout.on('end', function () { process.exit(); });
+            process.stdin.on('end', function () { process.exit(); });
+            process.stdin.on('data', function (data) { });
+        }
     });
 }
 

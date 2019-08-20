@@ -317,7 +317,8 @@ body {
 }
 
 .room4submenu {
-    min-height: calc(100vh - 159px);
+    /*min-height: calc(100vh - 159px);*/
+    min-height: calc(100vh - 184px);
 }
 
 #centralTable {
@@ -837,15 +838,9 @@ NoMeshesPanel img {
         color: gray;
     }
 
-#p3events {
+#p3events, #p16events, #p31events {
     height: calc(100vh - 245px);
     overflow-y: scroll;
-}
-
-.p3eventsTable {
-    width: 100%;
-    border-spacing: 0;
-    padding: 0;
 }
 
 .p3eventsTable {
@@ -1192,6 +1187,14 @@ a {
     border: none;
 }
 
+.relayIcon16 {
+    background: url(../images/icon-relay.png);
+    height: 16px;
+    width: 16px;
+    cursor: pointer;
+    border: none;
+}
+
 .lbbutton {
     width: 74px;
     height: 74px;
@@ -1354,6 +1357,14 @@ a {
 
 .si4 {
     background: url(../images/icons16.png) -64px 0px;
+    height: 16px;
+    width: 16px;
+    border: none;
+    float: left;
+}
+
+.si5 {
+    background: url(../images/icons16.png) -80px 0px;
     height: 16px;
     width: 16px;
     border: none;
@@ -1582,6 +1593,14 @@ a {
     float: none;
 }
 
+#p16events .g1 {
+    float: none;
+}
+
+#p31events .g1 {
+    float: none;
+}
+
 #p3users .g1 {
     height: 24px;
     float: left;
@@ -1614,6 +1633,14 @@ a {
 }
 
 #p3events .g2 {
+    float: none;
+}
+
+#p16events .g2 {
+    float: none;
+}
+
+#p31events .g2 {
     float: none;
 }
 
@@ -2038,15 +2065,34 @@ a {
     margin: auto;
 }
 
-#deskToolsBar {
+.deskToolsTopTab {
+    position:absolute;
+    background-color:lightgray;
+    padding:2px;
+    top:2px;
+    left:0px;
+    width:80px;
+    bottom:2px;
+    border-top-left-radius:4px;
+    border-top-right-radius:4px;
+    cursor:pointer;
+}
+
+#deskToolsAreaTop {
     position: absolute;
+    /*
     padding: 3px;
     border-radius: 3px 3px 0px 0px;
     top: 5px;
     left: 4px;
     bottom: 26px;
-    background-color: lightgray;
     cursor: pointer;
+    */
+    top: 0px;
+    left: 4px;
+    right: 4px;
+    height: 26px;
+    background-color: gray;
 }
 
 #deskToolsArea {
@@ -2070,7 +2116,27 @@ a {
         float: left;
     }
 
+#deskToolsServiceHeader {
+    border-bottom: 1px solid darkgray;
+    padding: 3px;
+}
+
+    #deskToolsServiceHeader .colmn1 {
+        width: 50px;
+        padding-right: 5px;
+        float: left;
+    }
+
 #DeskToolsProcesses {
+    overflow-y: scroll;
+    position: absolute;
+    top: 24px;
+    bottom: 0px;
+    width: 100%;
+    color:black;
+}
+
+#DeskToolsServices {
     overflow-y: scroll;
     position: absolute;
     top: 24px;
@@ -2288,6 +2354,7 @@ a {
     width: calc(100vw - 120px);
 }
 
+/*
 #p16events, #p31events {
     max-height: calc(100vh - 245px);
     overflow-y: auto;
@@ -2296,6 +2363,7 @@ a {
 .room4submenu #p16events, #p31events {
     max-height: calc(100vh - 269px);
 }
+*/
 
 .night #p16events, #p31events {
     color: #222;
@@ -2460,6 +2528,10 @@ a {
     margin-right: 4px;
     border-radius: 5px;
 }
+
+    .night .tagSpan {
+        color: black;
+    }
 
 .suggestionBox {
     position:absolute;

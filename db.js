@@ -96,6 +96,11 @@ module.exports.CreateDB = function (parent, func) {
                     for (var i in docs) {
                         var fixed = false;
 
+                        // Fix email address capitalization
+                        if (docs[i].email && (docs[i].email != docs[i].email.toLowerCase())) {
+                            docs[i].email = docs[i].email.toLowerCase(); fixed = true;
+                        }
+
                         // Fix account creation
                         if (docs[i].creation) {
                             if (docs[i].creation > 1300000000000) { docs[i].creation = Math.floor(docs[i].creation / 1000); fixed = true; }
@@ -206,10 +211,7 @@ module.exports.CreateDB = function (parent, func) {
             Datastore = client;
 
             // Get the database name and setup the database client
-            var dbNamefromUrl = null;
-            try { dbNamefromUrl = require('url').parse(parent.args.mongodb).path.split('/')[1]; } catch (ex) { }
             var dbname = 'meshcentral';
-            if (dbNamefromUrl) { dbname = dbNamefromUrl; }
             if (parent.args.mongodbname) { dbname = parent.args.mongodbname; }
             const dbcollectionname = (parent.args.mongodbcol) ? (parent.args.mongodbcol) : 'meshcentral';
             const db = client.db(dbname);
@@ -232,41 +234,45 @@ module.exports.CreateDB = function (parent, func) {
 
             // Setup the changeStream on the MongoDB main collection if possible
             if (parent.args.mongodbchangestream == true) {
-                obj.fileChangeStream = obj.file.watch( [ { $match: { $or: [{ 'fullDocument.type': { $in: ['node', 'mesh', 'user'] } }, { 'operationType': 'delete' }] } } ], { fullDocument: 'updateLookup' });
-                obj.fileChangeStream.on('change', function (change) {
-                    if (change.operationType == 'update') {
-                        switch (change.fullDocument.type) {
-                            case 'node': { dbNodeChange(change, false); break; } // A node has changed
-                            case 'mesh': { dbMeshChange(change, false); break; } // A device group has changed
-                            case 'user': { dbUserChange(change, false); break; } // A user account has changed
-                        }
-                    } else if (change.operationType == 'insert') {
-                        switch (change.fullDocument.type) {
-                            case 'node': { dbNodeChange(change, true); break; } // A node has added
-                            case 'mesh': { dbMeshChange(change, true); break; } // A device group has created
-                            case 'user': { dbUserChange(change, true); break; } // A user account has created
-                        }
-                    } else if (change.operationType == 'delete') {
-                        var splitId = change.documentKey._id.split('/');
-                        switch (splitId[0]) {
-                            case 'node': {
-                                //Not Good: Problem here is that we don't know what meshid the node belonged to before the delete.
-                                //parent.DispatchEvent(['*', node.meshid], obj, { etype: 'node', action: 'removenode', nodeid: change.documentKey._id, domain: splitId[1] });
-                                break;
+                if (typeof obj.file.watch != 'function') {
+                    console.log('WARNING: watch() is not a function, MongoDB ChangeStream not supported.');
+                } else {
+                    obj.fileChangeStream = obj.file.watch([{ $match: { $or: [{ 'fullDocument.type': { $in: ['node', 'mesh', 'user'] } }, { 'operationType': 'delete' }] } }], { fullDocument: 'updateLookup' });
+                    obj.fileChangeStream.on('change', function (change) {
+                        if (change.operationType == 'update') {
+                            switch (change.fullDocument.type) {
+                                case 'node': { dbNodeChange(change, false); break; } // A node has changed
+                                case 'mesh': { dbMeshChange(change, false); break; } // A device group has changed
+                                case 'user': { dbUserChange(change, false); break; } // A user account has changed
                             }
-                            case 'mesh': {
-                                parent.DispatchEvent(['*', node.meshid], obj, { etype: 'mesh', action: 'deletemesh', meshid: change.documentKey._id, domain: splitId[1] });
-                                break;
+                        } else if (change.operationType == 'insert') {
+                            switch (change.fullDocument.type) {
+                                case 'node': { dbNodeChange(change, true); break; } // A node has added
+                                case 'mesh': { dbMeshChange(change, true); break; } // A device group has created
+                                case 'user': { dbUserChange(change, true); break; } // A user account has created
                             }
-                            case 'user': {
-                                //Not Good: This is not a perfect user removal because we don't know what groups the user was in.
-                                //parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', action: 'accountremove', userid: change.documentKey._id, domain: splitId[1], username: splitId[2] });
-                                break;
+                        } else if (change.operationType == 'delete') {
+                            var splitId = change.documentKey._id.split('/');
+                            switch (splitId[0]) {
+                                case 'node': {
+                                    //Not Good: Problem here is that we don't know what meshid the node belonged to before the delete.
+                                    //parent.DispatchEvent(['*', node.meshid], obj, { etype: 'node', action: 'removenode', nodeid: change.documentKey._id, domain: splitId[1] });
+                                    break;
+                                }
+                                case 'mesh': {
+                                    parent.DispatchEvent(['*', node.meshid], obj, { etype: 'mesh', action: 'deletemesh', meshid: change.documentKey._id, domain: splitId[1] });
+                                    break;
+                                }
+                                case 'user': {
+                                    //Not Good: This is not a perfect user removal because we don't know what groups the user was in.
+                                    //parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', action: 'accountremove', userid: change.documentKey._id, domain: splitId[1], username: splitId[2] });
+                                    break;
+                                }
                             }
                         }
-                    }
-                });
-                obj.changeStream = true;
+                    });
+                    obj.changeStream = true;
+                }
             }
 
             // Setup MongoDB events collection and indexes
@@ -529,12 +535,13 @@ module.exports.CreateDB = function (parent, func) {
                 }
             };
             obj.GetAll = function (func) { obj.file.find({}).toArray(func); };
-            obj.GetAllTypeNoTypeField = function (type, domain, func) { obj.file.find({ type: type, domain: domain }, { type: 0 }).toArray(func); };
+            obj.GetHash = function (id, func) { obj.file.find({ _id: id }).project({ _id: 0, hash: 1 }).toArray(func); };
+            obj.GetAllTypeNoTypeField = function (type, domain, func) { obj.file.find({ type: type, domain: domain }).project({ type: 0 }).toArray(func); };
             obj.GetAllTypeNoTypeFieldMeshFiltered = function (meshes, domain, type, id, func) { var x = { type: type, domain: domain, meshid: { $in: meshes } }; if (id) { x._id = id; } obj.file.find(x, { type: 0 }).toArray(func); };
             obj.GetAllType = function (type, func) { obj.file.find({ type: type }).toArray(func); };
             obj.GetAllIdsOfType = function (ids, domain, type, func) { obj.file.find({ type: type, domain: domain, _id: { $in: ids } }).toArray(func); };
-            obj.GetUserWithEmail = function (domain, email, func) { obj.file.find({ type: 'user', domain: domain, email: email }, { type: 0 }).toArray(func); };
-            obj.GetUserWithVerifiedEmail = function (domain, email, func) { obj.file.find({ type: 'user', domain: domain, email: email, emailVerified: true }, { type: 0 }).toArray(func); };
+            obj.GetUserWithEmail = function (domain, email, func) { obj.file.find({ type: 'user', domain: domain, email: email }).project({ type: 0 }).toArray(func); };
+            obj.GetUserWithVerifiedEmail = function (domain, email, func) { obj.file.find({ type: 'user', domain: domain, email: email, emailVerified: true }).project({ type: 0 }).toArray(func); };
             obj.Remove = function (id) { obj.file.deleteOne({ _id: id }); };
             obj.RemoveAll = function (func) { obj.file.deleteMany({}, { multi: true }, func); };
             obj.RemoveAllOfType = function (type, func) { obj.file.deleteMany({ type: type }, { multi: true }, func); };
@@ -555,18 +562,18 @@ module.exports.CreateDB = function (parent, func) {
             // Database actions on the events collection
             obj.GetAllEvents = function (func) { obj.eventsfile.find({}).toArray(func); };
             obj.StoreEvent = function (event) { obj.eventsfile.insertOne(event); };
-            obj.GetEvents = function (ids, domain, func) { obj.eventsfile.find({ domain: domain, ids: { $in: ids } }, { type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).toArray(func); };
-            obj.GetEventsWithLimit = function (ids, domain, limit, func) { obj.eventsfile.find({ domain: domain, ids: { $in: ids } }, { type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
-            obj.GetUserEvents = function (ids, domain, username, func) { obj.eventsfile.find({ domain: domain, $or: [{ ids: { $in: ids } }, { username: username }] }, { type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).toArray(func); };
-            obj.GetUserEventsWithLimit = function (ids, domain, username, limit, func) { obj.eventsfile.find({ domain: domain, $or: [{ ids: { $in: ids } }, { username: username }] }, { type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
-            obj.GetNodeEventsWithLimit = function (nodeid, domain, limit, func) { obj.eventsfile.find({ domain: domain, nodeid: nodeid }, { type: 0, etype: 0, _id: 0, domain: 0, ids: 0, node: 0, nodeid: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
+            obj.GetEvents = function (ids, domain, func) { obj.eventsfile.find({ domain: domain, ids: { $in: ids } }).project({ type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).toArray(func); };
+            obj.GetEventsWithLimit = function (ids, domain, limit, func) { obj.eventsfile.find({ domain: domain, ids: { $in: ids } }).project({ type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
+            obj.GetUserEvents = function (ids, domain, username, func) { obj.eventsfile.find({ domain: domain, $or: [{ ids: { $in: ids } }, { username: username }] }).project({ type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).toArray(func); };
+            obj.GetUserEventsWithLimit = function (ids, domain, username, limit, func) { obj.eventsfile.find({ domain: domain, $or: [{ ids: { $in: ids } }, { username: username }] }).project({ type: 0, _id: 0, domain: 0, ids: 0, node: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
+            obj.GetNodeEventsWithLimit = function (nodeid, domain, limit, func) { obj.eventsfile.find({ domain: domain, nodeid: nodeid }).project({ type: 0, etype: 0, _id: 0, domain: 0, ids: 0, node: 0, nodeid: 0 }).sort({ time: -1 }).limit(limit).toArray(func); };
             obj.RemoveAllEvents = function (domain) { obj.eventsfile.deleteMany({ domain: domain }, { multi: true }); };
             obj.RemoveAllNodeEvents = function (domain, nodeid) { obj.eventsfile.deleteMany({ domain: domain, nodeid: nodeid }, { multi: true }); };
 
             // Database actions on the power collection
             obj.getAllPower = function (func) { obj.powerfile.find({}).toArray(func); };
             obj.storePowerEvent = function (event, multiServer, func) { if (multiServer != null) { event.server = multiServer.serverid; } obj.powerfile.insertOne(event, func); };
-            obj.getPowerTimeline = function (nodeid, func) { obj.powerfile.find({ nodeid: { $in: ['*', nodeid] } }, { _id: 0, nodeid: 0, s: 0 }).sort({ time: 1 }).toArray(func); };
+            obj.getPowerTimeline = function (nodeid, func) { obj.powerfile.find({ nodeid: { $in: ['*', nodeid] } }).project({ _id: 0, nodeid: 0, s: 0 }).sort({ time: 1 }).toArray(func); };
             obj.removeAllPowerEvents = function () { obj.powerfile.deleteMany({}, { multi: true }); };
             obj.removeAllPowerEventsForNode = function (nodeid) { obj.powerfile.deleteMany({ nodeid: nodeid }, { multi: true }); };
 
@@ -622,6 +629,7 @@ module.exports.CreateDB = function (parent, func) {
                 }
             };
             obj.GetAll = function (func) { obj.file.find({}, func); };
+            obj.GetHash = function (id, func) { obj.file.find({ _id: id }, { _id: 0, hash: 1 }, func); };
             obj.GetAllTypeNoTypeField = function (type, domain, func) { obj.file.find({ type: type, domain: domain }, { type: 0 }, func); };
             obj.GetAllTypeNoTypeFieldMeshFiltered = function (meshes, domain, type, id, func) { var x = { type: type, domain: domain, meshid: { $in: meshes } }; if (id) { x._id = id; } obj.file.find(x, { type: 0 }, func); };
             obj.GetAllType = function (type, func) { obj.file.find({ type: type }, func); };
@@ -852,6 +860,7 @@ module.exports.CreateDB = function (parent, func) {
 
     // Called when a device group has changed
     function dbMeshChange(meshChange, added) {
+        if (parent.webserver == null) return;
         common.unEscapeLinksFieldName(meshChange.fullDocument);
         const mesh = meshChange.fullDocument;
 
@@ -872,6 +881,7 @@ module.exports.CreateDB = function (parent, func) {
 
     // Called when a user account has changed
     function dbUserChange(userChange, added) {
+        if (parent.webserver == null) return;
         const user = userChange.fullDocument;
 
         // Update the user object in memory

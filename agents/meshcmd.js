@@ -46,6 +46,7 @@ var oswsstack = null, osamtstack = null;
 var amtMeiTmpState = null;
 var SMBiosTables = null;
 var globalDebugFlags = 0; // 1 = IDER Debug
+var pendingAmtConfigActions = 0;
 const RCSMessageProtocolVersion = 1; // RCS Message Protocol Version.  Needs to be less than or equal to RCS server Message Protocol Version
 
 // MeshCommander for Firmware (GZIP'ed, Base64) v0.7.8
@@ -113,7 +114,7 @@ function run(argv) {
     //console.log('addedModules = ' + JSON.stringify(addedModules));
     var actionpath = 'meshaction.txt';
     if (args.actionfile != null) { actionpath = args.actionfile; }
-    var actions = ['HELP', 'ROUTE', 'MICROLMS', 'AMTPOWER', 'AMTLOADWEBAPP', 'AMTLOADSMALLWEBAPP', 'AMTLOADLARGEWEBAPP', 'AMTCLEARWEBAPP', 'AMTSTORAGESTATE', 'AMTINFO', 'AMTINFODEBUG', 'AMTVERSIONS', 'AMTHASHES', 'AMTSAVESTATE', 'AMTSCRIPT', 'AMTUUID', 'AMTCCM', 'AMTACM', 'AMTDEACTIVATE', 'AMTACMDEACTIVATE', 'SMBIOS', 'RAWSMBIOS', 'MESHCOMMANDER', 'AMTAUDITLOG', 'AMTPRESENCE'];
+    var actions = ['HELP', 'ROUTE', 'MICROLMS', 'AMTPOWER', 'AMTFEATURES', 'AMTNETWORK', 'AMTLOADWEBAPP', 'AMTLOADSMALLWEBAPP', 'AMTLOADLARGEWEBAPP', 'AMTCLEARWEBAPP', 'AMTSTORAGESTATE', 'AMTINFO', 'AMTINFODEBUG', 'AMTVERSIONS', 'AMTHASHES', 'AMTSAVESTATE', 'AMTSCRIPT', 'AMTUUID', 'AMTCCM', 'AMTACM', 'AMTDEACTIVATE', 'AMTACMDEACTIVATE', 'SMBIOS', 'RAWSMBIOS', 'MESHCOMMANDER', 'AMTAUDITLOG', 'AMTEVENTLOG', 'AMTPRESENCE'];
 
     // Load the action file
     var actionfile = null;
@@ -156,6 +157,7 @@ function run(argv) {
     if (args.noconsole) { settings.noconsole = true; }
     if (args.nocommander) { settings.noconsole = true; }
     if (args.lmsdebug) { settings.lmsdebug = true; }
+    if (args.json) { settings.json = true; }
     if (args.tls) { settings.tls = true; }
     if ((argv.length > 1) && (actions.indexOf(argv[1].toUpperCase()) >= 0)) { settings.action = argv[1]; }
 
@@ -165,7 +167,7 @@ function run(argv) {
         console.log('No action specified, use MeshCmd like this:\r\n');
         console.log('  meshcmd [action] [arguments...]\r\n');
         console.log('Valid MeshCentral actions:');
-        console.log('  Route           - Map a local TCP port to a remote computer.');
+        console.log('  Route             - Map a local TCP port to a remote computer.');
         console.log('\r\nValid local actions:');
         console.log('  SMBios            - Display System Management BIOS tables for this computer.');
         console.log('  RawSMBios         - Display RAW System Management BIOS tables for this computer.');
@@ -180,6 +182,7 @@ function run(argv) {
         console.log('\r\nValid local or remote actions:');
         console.log('  MeshCommander     - Launch a local MeshCommander web server.');
         console.log('  AmtUUID           - Show Intel AMT unique identifier.');
+        console.log('  AmtEventLog       - Show the Intel AMT event log.');
         console.log('  AmtAuditLog       - Show the Intel AMT audit log.');
         console.log('  AmtLoadWebApp     - Load MeshCommander in Intel AMT 11.6+ firmware.');
         console.log('  AmtClearWebApp    - Clear everything from Intel AMT web storage.');
@@ -189,6 +192,8 @@ function run(argv) {
         console.log('  AmtPower          - Perform remote Intel AMT power operation.');
         console.log('  AmtScript         - Run .mescript on Intel AMT.');
         console.log('  AmtIDER           - Mount local disk image to remote computer.');
+        console.log('  AmtFeatures       - Intel AMT features & user consent.');
+        console.log('  AmtNetwork        - Intel AMT network interface settings.');
         console.log('\r\nHelp on a specific action using:\r\n');
         console.log('  meshcmd help [action]');
         exit(1); return;
@@ -299,26 +304,65 @@ function run(argv) {
         } else if (action == 'amtpower') {
             console.log('AmtPower will get current pwoer state or send a reboot command to a remote Intel AMT device. Example usage:\r\n\r\n  meshcmd amtpower --reset --host 1.2.3.4 --user admin --pass mypassword --tls');
             console.log('\r\nRequired arguments:\r\n');
-            console.log('  --host [hostname]      The IP address or DNS name of Intel AMT, 127.0.0.1 is default.');
+            console.log('  --host [hostname]      The IP address or DNS name of Intel AMT.');
             console.log('  --pass [password]      The Intel AMT login password.');
             console.log('\r\nOptional arguments:\r\n');
             console.log('  --reset, --poweron, --poweroff, --powercycle, --sleep, --hibernate');
             console.log('  --user [username]      The Intel AMT login username, admin is default.');
             console.log('  --tls                  Specifies that TLS must be used.');
+        } else if (action == 'amtnetwork') {
+            console.log('AmtNetwork is used to get/set Intel AMT network interface configuration. Example usage:\r\n\r\n  meshcmd amtnetwork --host 1.2.3.4 --user admin --pass mypassword --dhcp');
+            console.log('\r\nRequired arguments:\r\n');
+            console.log('  --host [hostname]         The IP address or DNS name of Intel AMT, 127.0.0.1 is default.');
+            console.log('  --pass [password]         The Intel AMT login password.');
+            console.log('\r\nOptional arguments:\r\n');
+            console.log('  --user [username]         The Intel AMT login username, admin is default.');
+            console.log('  --tls                     Specifies that TLS must be used.');
+            console.log('  --ipsync [0 or 1]         Change the wired IPSync setting on Intel AMT 7+');
+            console.log('  --dhcp                    Change IPv4 wired interface to DHCP mode');
+            console.log('  --static                  Change IPv4 wired interface to static IP mode');
+            console.log('    --ip [1.2.3.4]          Static IPv4 address (required)');
+            console.log('    --subnet [1.2.3.4]      Static IPv4 subnet mask');
+            console.log('    --gateway [1.2.3.4]     Static IPv4 default gateway');
+            console.log('    --dns [1.2.3.4]         Primary DNS IPv4 address');
+            console.log('    --dns2 [1.2.3.4]        Secondary DNS IPv4 address');
+        } else if (action == 'amtfeatures') {
+            console.log('AmtFeatures is used to get/set Intel AMT feature configuration. Example usage:\r\n\r\n  meshcmd amtfeatures --host 1.2.3.4 --user admin --pass mypassword --tls --redir 1');
+            console.log('\r\nRequired arguments:\r\n');
+            console.log('  --host [hostname]         The IP address or DNS name of Intel AMT, 127.0.0.1 is default.');
+            console.log('  --pass [password]         The Intel AMT login password.');
+            console.log('\r\nOptional arguments:\r\n');
+            console.log('  --user [username]         The Intel AMT login username, admin is default.');
+            console.log('  --tls                     Specifies that TLS must be used.');
+            console.log('  --consent [none/kvm/all]  Set Intel AMT user consent feature.');
+            console.log('  --redir [0/1]             Set Intel AMT redirection port feature.');
+            console.log('  --kvm [0/1]               Set Intel AMT KVM feature.');
+            console.log('  --sol [0/1]               Set Intel AMT Serial-over-LAN feature.');
+            console.log('  --ider [0/1]              Set Intel AMT IDE redirection feature.');
         } else if (action == 'meshcommander') {
             console.log('This action launched a local web server that hosts MeshCommander, a Intel AMT management console.');
             console.log('\r\nPossible arguments:\r\n');
             console.log('  --localport [port]     Local port used for the web server, 3000 is default.');
             console.log('\r\nRun as a background service:\r\n');
             console.log('  meshcommander install/uninstall/start/stop.');
-        } else if (action == 'amtauditlog') {
-            console.log('AmtAuditLog action will fetch the local or remote audit log. If used localy, no username/password is required. Example usage:\r\n\r\n  meshcmd amtauditlog --host 1.2.3.4 --user admin --pass mypassword --tls --output audit.json');
+        } else if (action == 'amteventlog') {
+            console.log('AmtEventLog action will fetch the local or remote event log. Example usage:\r\n\r\n  meshcmd amteventlog --host 1.2.3.4 --user admin --pass mypassword --tls --output events.txt');
             console.log('\r\nPossible arguments:\r\n');
-            console.log('  --output [filename]    The output file for the Intel AMT state in JSON format.');
+            console.log('  --output [filename]    The output file for the Intel AMT event log.');
             console.log('  --host [hostname]      The IP address or DNS name of Intel AMT, 127.0.0.1 is default.');
             console.log('  --user [username]      The Intel AMT login username, admin is default.');
             console.log('  --pass [password]      The Intel AMT login password.');
             console.log('  --tls                  Specifies that TLS must be used.');
+            console.log('  --json                 Output as a JSON format.');
+        } else if (action == 'amtauditlog') {
+            console.log('AmtAuditLog action will fetch the local or remote audit log. If used localy, no username/password is required. Example usage:\r\n\r\n  meshcmd amtauditlog --host 1.2.3.4 --user admin --pass mypassword --tls --output audit.json');
+            console.log('\r\nPossible arguments:\r\n');
+            console.log('  --output [filename]    The output file for the Intel AMT audit log.');
+            console.log('  --host [hostname]      The IP address or DNS name of Intel AMT, 127.0.0.1 is default.');
+            console.log('  --user [username]      The Intel AMT login username, admin is default.');
+            console.log('  --pass [password]      The Intel AMT login password.');
+            console.log('  --tls                  Specifies that TLS must be used.');
+            console.log('  --json                 Output as a JSON format.');
         } else if (action == 'amtider') {
             console.log('AmtIDER will mount a local disk images to a remote Intel AMT computer. Example usage:\r\n\r\n  meshcmd amtider --host 1.2.3.4 --user admin --pass mypassword --tls --floppy disk.img --cdrom disk.iso');
             console.log('\r\nPossible arguments:\r\n');
@@ -574,6 +618,11 @@ function run(argv) {
             if ((settings.username == null) || (typeof settings.username != 'string') || (settings.username == '')) { settings.username = 'admin'; }
         } else { settings.hostname = '127.0.0.1'; }
         readAmtAuditLog();
+    } else if (settings.action == 'amteventlog') { // Read the Intel AMT audit log
+        if (settings.hostname == null) { settings.hostname = '127.0.0.1'; }
+        if ((settings.password == null) || (typeof settings.password != 'string') || (settings.password == '')) { console.log('No or invalid \"password\" specified, use --password [password].'); exit(1); return; }
+        if ((settings.username == null) || (typeof settings.username != 'string') || (settings.username == '')) { settings.username = 'admin'; }
+        readAmtEventLog();
     } else if (settings.action == 'amtider') { // Remote mount IDER image
         if ((settings.hostname == null) || (typeof settings.hostname != 'string') || (settings.hostname == '')) { console.log('No or invalid \"hostname\" specified, use --hostname [password].'); exit(1); return; }
         if ((settings.password == null) || (typeof settings.password != 'string') || (settings.password == '')) { console.log('No or invalid \"password\" specified, use --password [password].'); exit(1); return; }
@@ -582,6 +631,16 @@ function run(argv) {
         if ((settings.cdrom == null) || (typeof settings.cdrom != 'string') || (settings.cdrom == '')) { settings.cdrom = null; }
         if ((settings.floppy == null) && (settings.cdrom == null)) { console.log('No or invalid \"floppy\" or \"cdrom\" specified, use --floppy [file] or --cdrom [file].'); exit(1); return; }
         performIder();
+    } else if (settings.action == 'amtnetwork') { // Perform remote Intel AMT wired IPv4 configuration operation
+        if (settings.hostname == null) { settings.hostname = '127.0.0.1'; }
+        if ((settings.password == null) || (typeof settings.password != 'string') || (settings.password == '')) { console.log('No or invalid \"password\" specified, use --password [password].'); exit(1); return; }
+        if ((settings.username == null) || (typeof settings.username != 'string') || (settings.username == '')) { settings.username = 'admin'; }
+        performAmtNetConfig(args);
+    } else if (settings.action == 'amtfeatures') { // Perform remote Intel AMT feature configuration operation
+        if (settings.hostname == null) { settings.hostname = '127.0.0.1'; }
+        if ((settings.password == null) || (typeof settings.password != 'string') || (settings.password == '')) { console.log('No or invalid \"password\" specified, use --password [password].'); exit(1); return; }
+        if ((settings.username == null) || (typeof settings.username != 'string') || (settings.username == '')) { settings.username = 'admin'; }
+        performAmtFeatureConfig(args);
     } else if (settings.action == 'amtpower') { // Perform remote Intel AMT power operation
         if ((settings.hostname == null) || (typeof settings.hostname != 'string') || (settings.hostname == '')) { console.log('No or invalid \"hostname\" specified, use --hostname [host].'); exit(1); return; }
         if ((settings.password == null) || (typeof settings.password != 'string') || (settings.password == '')) { console.log('No or invalid \"password\" specified, use --password [password].'); exit(1); return; }
@@ -698,6 +757,52 @@ function performAmtAgentPresenceEx5(stack, name, response, status, watchdog) {
     }
 }
 
+
+//
+// Intel AMT Event Log
+//
+
+function readAmtEventLog() {
+    // See if MicroLMS needs to be started
+    if ((settings.hostname == '127.0.0.1') || (settings.hostname.toLowerCase() == 'localhost')) {
+        settings.noconsole = true; startLms(readAmtEventLogEx);
+    } else {
+        readAmtEventLogEx(9999);
+    }
+}
+
+function readAmtEventLogEx(x) {
+    if (x == 9999) {
+        var transport = require('amt-wsman-duk');
+        var wsman = require('amt-wsman');
+        var amt = require('amt');
+        wsstack = new wsman(transport, settings.hostname, settings.tls ? 16993 : 16992, settings.username, settings.password, settings.tls);
+        amtstack = new amt(wsstack);
+        amtstack.GetMessageLog(readAmtEventLogEx2);
+    } else {
+        osamtstack.GetMessageLog(readAmtEventLogEx2);
+    }
+}
+
+function readAmtEventLogEx2(stack, messages) {
+    if (messages == null) {
+        console.log('Unable to get event log.');
+    } else {
+        var out = '';
+        if (settings.json) {
+            out = JSON.stringify(messages, 4, ' ');
+        } else {
+            for (var i in messages) { out += messages[i].Time + ', ' + messages[i].EntityStr + ', ' + messages[i].Desc + '\r\n'; }
+        }
+        if (settings.output == null) { console.log(out); } else {
+            var file = fs.openSync(settings.output, 'w');
+            fs.writeSync(file, Buffer.from(out));
+            fs.closeSync(file);
+        }
+    }
+    exit(1);
+}
+
 //
 // Intel AMT Audit Log
 //
@@ -729,11 +834,19 @@ function readAmtAuditLogEx2(stack, response, status) {
         console.log('Unable to get audit log, status = ' + status + '.');
     } else {
         var out = '';
-        for (var i in response) {
-            var name = ((response[i].Initiator != '') ? (response[i].Initiator + ': ') : '')
-            out += (response[i].Time + ' - ' + name + response[i].Event + '\r\n');
+        if (settings.json) {
+            out = JSON.stringify(response, 4, ' ');
+        } else {
+            for (var i in response) {
+                var name = ((response[i].Initiator != '') ? (response[i].Initiator + ': ') : '')
+                out += (response[i].Time + ' - ' + name + response[i].Event + '\r\n');
+            }
         }
-        if (settings.output == null) { console.log(out); } else { var file = fs.openSync(settings.output, 'w'); fs.writeSync(file, Buffer.from(out, 'utf8')); fs.closeSync(file); }
+        if (settings.output == null) { console.log(out); } else {
+            var file = fs.openSync(settings.output, 'w');
+            fs.writeSync(file, Buffer.from(out));
+            fs.closeSync(file);
+        }
     }
     exit(1);
 }
@@ -1355,11 +1468,11 @@ var lmsNotifications = [];
 var amtLms = null;
 var promise = require('promise');
 
-function startLms(func, lmscommander) {
+function startLms(func, lmscommander, tag) {
     var ret = new promise(function (res, rej) { this._res = res; this._rej = rej; });
     var lme_heci = null
     try { lme_heci = require('amt-lme'); } catch (ex) { }
-    if (lme_heci == null) { if (func != null) { func(func, 0); } this.promise._res(); return; }
+    if (lme_heci == null) { if (func != null) { func(0, tag); } this.promise._res(); return; }
 
     //var amtLms = null;
     var http = require('http');
@@ -1377,10 +1490,10 @@ function startLms(func, lmscommander) {
         if (lmscommander === true) { //settings.noconsole !== true) {
             startMeshCommanderLms();
             //console.log("LMS started, MeshCommander on HTTP/16994.");
-            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 2); }, 100);
+            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 2, tag); }, 100);
         } else {
             //console.log('LME connection failed: ' + JSON.stringify(e));
-            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 0); }, 100);
+            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 0, tag); }, 100);
         }
         this.promise._res();
     });
@@ -1406,11 +1519,11 @@ function startLms(func, lmscommander) {
         if (settings.noconsole !== true) {
             startMeshCommanderLms();
             //console.log("LMS started, MeshCommander on HTTP/16994.");
-            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 2); }, 100);
+            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 2, tag); }, 100);
             //console.logReferenceCount(tempTimer);
         } else {
             //console.log("LMS started.");
-            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 1); }, 100);
+            tempTimer = setTimeout(function () { delete tempTimer; setupMeiOsAdmin(func, 1, tag); }, 100);
             //console.logReferenceCount(tempTimer);
         }
 
@@ -1481,9 +1594,9 @@ function startMeshCommanderLms() {
     });
 }
 
-function setupMeiOsAdmin(func, state) {
+function setupMeiOsAdmin(func, state, tag) {
     if (amtMei == null) {
-        if (func) { func(state); }
+        if (func) { func(state, tag); }
     } else {
         amtMei.getLocalSystemAccount(function (x) {
             var transport = require('amt-wsman-duk');
@@ -1491,7 +1604,7 @@ function setupMeiOsAdmin(func, state) {
             var amt = require('amt');
             oswsstack = new wsman(transport, '127.0.0.1', 16992, x.user, x.pass, false);
             osamtstack = new amt(oswsstack);
-            if (func) { func(state); }
+            if (func) { func(state, tag); }
 
             //var AllWsman = "CIM_SoftwareIdentity,IPS_SecIOService,IPS_ScreenSettingData,IPS_ProvisioningRecordLog,IPS_HostBasedSetupService,IPS_HostIPSettings,IPS_IPv6PortSettings".split(',');
             //osamtstack.BatchEnum(null, AllWsman, startLmsWsmanResponse, null, true);
@@ -1869,7 +1982,7 @@ function OnWebSocket(msg, s, head) {
     s.on('data', function (msg) {
         if (this.parent.tunneling == false) {
             msg = msg.toString();
-            if (msg == 'c') {
+            if ((msg == 'c') || (msg == 'cr')) {
                 this.parent.tunneling = true; this.pipe(this.parent.tcp); this.parent.tcp.pipe(this); debug(1, 'Tunnel active');
             } else if ((msg.length > 6) && (msg.substring(0, 6) == 'error:')) {
                 console.log(msg.substring(6));
@@ -2067,6 +2180,208 @@ function onIderStateChange(stack, state) { console.log(['Disconnected', 'Connect
 function iderSectorStats(mode, dev, mediaBlocks, lba, len) {
     if (iderIdleTimer != null) { clearTimeout(iderIdleTimer); }
     iderIdleTimer = setTimeout(function () { console.log('Idle timeout'); process.exit(1); }, 1000 * settings.timeout);
+}
+
+//
+// Intel AMT IPv4 wired configuration
+//
+
+function performAmtNetConfig(args) {
+    if ((settings.hostname == '127.0.0.1') || (settings.hostname.toLowerCase() == 'localhost')) {
+        settings.noconsole = true; startLms(performAmtNetConfig0, false, args);
+    } else {
+        performAmtNetConfig0(1, args);
+    }
+}
+
+function performAmtNetConfig0(state, args) {
+    var transport = require('amt-wsman-duk');
+    var wsman = require('amt-wsman');
+    var amt = require('amt');
+    wsstack = new wsman(transport, settings.hostname, settings.tls ? 16993 : 16992, settings.username, settings.password, settings.tls);
+    amtstack = new amt(wsstack);
+    amtstack.BatchEnum(null, ['AMT_EthernetPortSettings'], performAmtNetConfig1, args);
+}
+
+function performAmtNetConfig1(stack, name, response, status, args) {
+    if (status == 200) {
+        // Set wired and wireless interfaces
+        var amtwirelessif = -1;
+        var amtwiredif = -1;
+        for (var y in response['AMT_EthernetPortSettings'].responses) {
+            var z = response['AMT_EthernetPortSettings'].responses[y];
+            if (z['WLANLinkProtectionLevel'] || (y == 1)) { amtwirelessif = y; } // Set the wireless interface, this seems to cover new wireless only computers and older computers with dual interfaces.
+            if (y == 0) { if ((amtwirelessif != y) && (z["MACAddress"] != "00-00-00-00-00-00")) { amtwiredif = y; } } // On computers with only wireless, the wired interface will have a null MAC
+        }
+
+        // Check if configuration change is required
+        if (args) {
+            var docall = false;
+            var x = JSON.parse(JSON.stringify(response['AMT_EthernetPortSettings'].responses[amtwiredif]));
+            var y = response['AMT_EthernetPortSettings'].responses[amtwiredif];
+            delete x["IpSyncEnabled"];
+            delete x["LinkIsUp"];
+            delete x["LinkPolicy"];
+            delete x["MACAddress"];
+            delete x["SharedDynamicIP"];
+            delete x["SharedMAC"];
+            delete x["SharedStaticIp"];
+
+            if ((y['IpSyncEnabled'] == false) && (args.ipsync === '1')) { x['IpSyncEnabled'] = true; docall = true; }
+            if ((y['IpSyncEnabled'] == true) && (args.ipsync === '0')) { x['IpSyncEnabled'] = false; docall = true; }
+            if (args.dhcp && (amtwiredif != -1) && (response['AMT_EthernetPortSettings'].responses[amtwiredif].DHCPEnabled == false)) {
+                // Change to DHCP
+                x['DHCPEnabled'] = true;
+                docall = true;
+            }
+            else if (args.static && (amtwiredif != -1) && (response['AMT_EthernetPortSettings'].responses[amtwiredif].DHCPEnabled == true)) {
+                // Change to STATIC
+                x['DHCPEnabled'] = false;
+                if (args.ip) { x["IPAddress"] = args.ip; } else { console.log('Missing IPv4 address, use --ip 1.2.3.4'); process.exit(1); }
+                if (args.subnet) { x["SubnetMask"] = args.subnet; } else { console.log('Missing IPv4 subnet, use --subnet 255.255.255.0'); process.exit(1); }
+                if (args.gateway) { x["DefaultGateway"] = args.gateway; }
+                if (args.dns) { x["PrimaryDNS"] = args.dns; }
+                if (args.dns2) { x["SecondaryDNS"] = args.dns2; }
+                docall = true;
+            }
+            if (docall) {
+                if (x["DHCPEnabled"] == true) {
+                    delete x["IPAddress"];
+                    delete x["DefaultGateway"];
+                    delete x["PrimaryDNS"];
+                    delete x["SecondaryDNS"];
+                    delete x["SubnetMask"];
+                }
+                pendingAmtConfigActions++;
+                //console.log(JSON.stringify(x, 4, ' '));
+                amtstack.Put("AMT_EthernetPortSettings", x, function (stack, name, response, status) { if (status != 200) { console.log('Error, status ' + status + '.'); } if (--pendingAmtConfigActions == 0) { performAmtNetConfig0(); } }, null, 0, x);
+            }
+        }
+
+        if (pendingAmtConfigActions == 0) {
+            var maxlen = 0;
+            if (amtwiredif != -1) { for (var i in response['AMT_EthernetPortSettings'].responses[amtwiredif]) { if (i.length > maxlen) { maxlen = i.length; } } }
+            if (amtwirelessif != -1) { for (var i in response['AMT_EthernetPortSettings'].responses[amtwirelessif]) { if (i.length > maxlen) { maxlen = i.length; } } }
+
+            if (amtwiredif != -1) { // Wired
+                var z = response['AMT_EthernetPortSettings'].responses[amtwiredif];
+                console.log('--WIRED---');
+                for (var i in z) {
+                    if (['ElementName', 'InstanceID'].indexOf(i) == -1) {
+                        var name = i;
+                        while (name.length < maxlen) { name += ' '; }
+                        console.log(name + ' : ' + z[i]);
+                    }
+                }
+            }
+            if (amtwirelessif != -1) { // Wireless
+                var z = response['AMT_EthernetPortSettings'].responses[amtwirelessif];
+                console.log('--WIRELESS---');
+                for (var i in z) {
+                    if (['ElementName', 'InstanceID'].indexOf(i) == -1) {
+                        var name = i;
+                        while (name.length < maxlen) { name += ' '; }
+                        console.log(name + ' : ' + z[i]);
+                    }
+                }
+            }
+            process.exit(0);
+        }
+    } else {
+        console.log('Error, status ' + status + '.');
+        process.exit(1);
+    }
+}
+
+
+//
+// Intel AMT feature configuration action
+//
+
+function performAmtFeatureConfig(args) {
+    if ((settings.hostname == '127.0.0.1') || (settings.hostname.toLowerCase() == 'localhost')) {
+        settings.noconsole = true; startLms(performAmtFeatureConfig0, false, args);
+    } else {
+        performAmtFeatureConfig0(1, args);
+    }
+}
+
+function performAmtFeatureConfig0(state, args) {
+    var transport = require('amt-wsman-duk');
+    var wsman = require('amt-wsman');
+    var amt = require('amt');
+    wsstack = new wsman(transport, settings.hostname, settings.tls ? 16993 : 16992, settings.username, settings.password, settings.tls);
+    amtstack = new amt(wsstack);
+    amtstack.BatchEnum(null, ['*IPS_OptInService', '*AMT_RedirectionService', '*CIM_KVMRedirectionSAP'], performAmtFeatureConfig1, args);
+}
+
+function performAmtFeatureConfig1(stack, name, response, status, args) {
+    if (status == 200) {
+        // User consent
+        var optinrequired = response['IPS_OptInService'].response["OptInRequired"];
+        if (args) {
+            if ((args.userconsent == 'none') && (optinrequired != 0)) {
+                pendingAmtConfigActions++;
+                response['IPS_OptInService'].response["OptInRequired"] = 0;
+                amtstack.Put("IPS_OptInService", response['IPS_OptInService'].response, function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } });
+            }
+            else if ((args.userconsent == 'kvm') && (optinrequired != 1)) {
+                pendingAmtConfigActions++;
+                response['IPS_OptInService'].response["OptInRequired"] = 1;
+                amtstack.Put("IPS_OptInService", response['IPS_OptInService'].response, function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } });
+            }
+            else if ((args.userconsent == 'all') && (optinrequired != 0xFFFFFFFF)) {
+                pendingAmtConfigActions++;
+                response['IPS_OptInService'].response["OptInRequired"] = 0xFFFFFFFF;
+                amtstack.Put("IPS_OptInService", response['IPS_OptInService'].response, function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } });
+            }
+        }
+
+        // Redirection ports
+        var redirportchange = false;
+        var redirchange = false;
+        var redir = (response['AMT_RedirectionService'].response["ListenerEnabled"] == true);
+
+        var sol = ((response['AMT_RedirectionService'].response["EnabledState"] & 2) != 0);
+        var ider = ((response['AMT_RedirectionService'].response["EnabledState"] & 1) != 0);
+        if (args) {
+            if ((redir == false) && ((args.redir == 'enabled') || (args.redir == 1))) { response['AMT_RedirectionService'].response["ListenerEnabled"] = true; redirportchange = true; }
+            if ((redir == true) && ((args.redir == 'disabled') || (args.redir == 0))) { response['AMT_RedirectionService'].response["ListenerEnabled"] = false; redirportchange = true; }
+            if ((sol == false) && ((args.sol == 'enabled') || (args.sol == 1))) { sol = true; redirchange = true; }
+            if ((sol == true) && ((args.sol == 'disabled') || (args.sol == 0))) { sol = false; redirchange = true; }
+            if ((ider == false) && ((args.ider == 'enabled') || (args.ider == 1))) { ider = true; redirchange = true; }
+            if ((ider == true) && ((args.ider == 'disabled') || (args.ider == 0))) { ider = false; redirchange = true; }
+            if (redirportchange) { pendingAmtConfigActions++; amtstack.Put("AMT_RedirectionService", response['AMT_RedirectionService'].response, function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } }); }
+            if (redirchange) { pendingAmtConfigActions++; amtstack.AMT_RedirectionService_RequestStateChange((32768 + ((ider ? 1 : 0) + (sol ? 2 : 0))), function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } }); }
+        }
+
+        // KVM
+        var kvm = false;
+        var kvmchange = false;
+        if (response['CIM_KVMRedirectionSAP'] != null) {
+            kvm = ((response['CIM_KVMRedirectionSAP'].response["EnabledState"] == 6 && response['CIM_KVMRedirectionSAP'].response["RequestedState"] == 2) || response['CIM_KVMRedirectionSAP'].response["EnabledState"] == 2 || response['CIM_KVMRedirectionSAP'].response["EnabledState"] == 6);
+            if (args) {
+                if ((kvm == false) && ((args.kvm == 'enabled') || (args.kvm == 1))) { kvm = true; kvmchange = true; }
+                if ((kvm == true) && ((args.kvm == 'disabled') || (args.kvm == 0))) { kvm = false; kvmchange = true; }
+                if (kvmchange) { pendingAmtConfigActions++; amtstack.CIM_KVMRedirectionSAP_RequestStateChange(kvm ? 2 : 3, 0, function (stack, name, response, status) { if (--pendingAmtConfigActions == 0) { performAmtFeatureConfig0(); } }); }
+            }
+        }
+
+        if (pendingAmtConfigActions == 0) {
+            if (optinrequired == 0) { console.log('User Consent         : None'); }
+            else if (optinrequired == 1) { console.log('User Consent         : KVM'); }
+            else if (optinrequired == 0xFFFFFFFF) { console.log('User Consent         : All'); }
+            else { console.log('User Consent         : ' + optinrequired); }
+            console.log('Redirection Port     : ' + (redir ? 'Enabled' : 'Disabled'));
+            console.log('Serial-over-LAN      : ' + (sol ? 'Enabled' : 'Disabled'));
+            console.log('IDE Redirection      : ' + (ider ? 'Enabled' : 'Disabled'));
+            if (response['CIM_KVMRedirectionSAP'] != null) { console.log('Remote desktop (KVM) : ' + (kvm ? 'Enabled' : 'Disabled')); }
+            process.exit(0);
+        }
+    } else {
+        console.log('Error, status ' + status + '.');
+        process.exit(1);
+    }
 }
 
 

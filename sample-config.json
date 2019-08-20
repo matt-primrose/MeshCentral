@@ -2,7 +2,8 @@
   "__comment__" : "This is a sample configuration file, edit a section and remove the _ in front of the name. Refer to the user's guide for details.",
   "settings": {
     "_Cert": "myserver.mydomain.com",
-    "_MongoDb": "mongodb://127.0.0.1:27017/meshcentral",
+    "_MongoDb": "mongodb://127.0.0.1:27017",
+    "_MongoDbName": "meshcentral",
     "_MongoDbChangeStream": true,
     "_WANonly": true,
     "_LANonly": true,
@@ -25,6 +26,8 @@
     "_AgentPong": 60,
     "_AgentIdleTimeout": 150,
     "_MeshErrorLogPath": "c:\\tmp",
+    "_NpmPath": "c:\\npm.exe",
+    "_NpmProxy": "http://1.2.3.4:80",
     "_AllowHighQualityDesktop": true,
     "_UserAllowedIP": "127.0.0.1,192.168.1.0/24",
     "_UserBlockedIP": "127.0.0.1,::1,192.168.0.100",
@@ -98,19 +101,24 @@
       },
       "_yubikey": { "id": "0000", "secret": "xxxxxxxxxxxxxxxxxxxxx", "_proxy": "http://myproxy.domain.com:80" },
       "_httpheaders": { "Strict-Transport-Security": "max-age=360000" },
-      "_agentConfig": [ "webSocketMaskOverride=1" ]
+      "_agentConfig": [ "webSocketMaskOverride=1" ],
+      "_SessionRecording": {
+        "_filepath": "C:\\temp",
+        "__protocols__": "Is an array: 1 = Terminal, 2 = Desktop, 5 = Files, 100 = Intel AMT WSMAN, 101 = Intel AMT Redirection",
+        "protocols": [ 1, 2, 101 ]
+      }
     },
-    "customer1": {
-      "DNS": "customer1.myserver.com",
-      "Title": "Customer1",
-      "Title2": "TestServer",
-      "NewAccounts": 1,
-      "Auth": "sspi",
-      "Footer": "Test",
+    "_customer1": {
+      "_DNS": "customer1.myserver.com",
+      "_Title": "Customer1",
+      "_Title2": "TestServer",
+      "_NewAccounts": 1,
+      "_Auth": "sspi",
+      "_Footer": "Test",
       "_CertUrl": "https://192.168.2.106:443/"
     },
-    "info": {
-      "share": "C:\\ExtraWebSite"
+    "_info": {
+      "_share": "C:\\ExtraWebSite"
     }
   },
   "_letsencrypt": {
